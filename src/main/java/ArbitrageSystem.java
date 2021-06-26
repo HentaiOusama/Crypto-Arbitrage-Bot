@@ -49,23 +49,32 @@ public class ArbitrageSystem implements Runnable {
 
     @Override
     public void run() {
-        buildWeb3j();
         TheGraphQueryMaker theGraphQueryMaker = new TheGraphQueryMaker("https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2");
         theGraphQueryMaker.setGraphQLQuery("""
                 {
-                    pairs {
+                    pairs(where :{token0: "0x1f6deadcb526c4710cf941872b86dcdfbbbd9211" }) {
                         id
+                        token0{
+                            id
+                            symbol
+                        }
+                        token1 {
+                            id
+                            symbol
+                        }
                     }
-                }
-                """);
+                }"""
+        );
         JSONObject outputJSON = theGraphQueryMaker.sendQuery();
         if (outputJSON != null) {
             MainClass.logPrintStream.println(outputJSON);
         }
 
-        while (shouldRunArbitrageSystem) {
-            // Do Something
-        }
+//        buildWeb3j();
+//
+//        while (shouldRunArbitrageSystem) {
+//            // Do Something
+//        }
 
         shutdownSystem();
     }
