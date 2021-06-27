@@ -2,14 +2,15 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 
 public class PairData {
-    public final String pairId, token0Id, token1Id;
+    public final String pairId, token0Id, token1Id, token0Symbol, token1Symbol;
+    public BigDecimal token0Volume, token1Volume, token0StaticPrice, token1StaticPrice;
 
-    public BigDecimal token0Volume, token1Volume;
-
-    PairData(String pairId, String token0Id, String token1Id) {
+    PairData(String pairId, String token0Id, String token1Id, String token0Symbol, String token1Symbol) {
         this.pairId = pairId;
         this.token0Id = token0Id;
         this.token1Id = token1Id;
+        this.token0Symbol = token0Symbol;
+        this.token1Symbol = token1Symbol;
         token0Volume = BigDecimal.valueOf(0);
         token1Volume = BigDecimal.valueOf(0);
     }
@@ -28,6 +29,11 @@ public class PairData {
 
     public BigDecimal getToken1StaticPrice() {
         return token0Volume.divide(token1Volume, RoundingMode.HALF_DOWN);
+    }
+
+    public void calculateAndSetStaticData() {
+        token0StaticPrice = getToken0StaticPrice();
+        token1StaticPrice = getToken1StaticPrice();
     }
 
     /* Dynamic Amount: -

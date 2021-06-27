@@ -34,7 +34,7 @@ public class ArbitrageSystem implements Runnable {
     private final HashMap<TheGraphQueryMaker, HashMap<String, PairData>> allNetworkAllPairData = new HashMap<>();
 
 
-    ArbitrageSystem(String arbitrageContractAddress, int waitTimeInMillis, String[] dexTheGraphHostUrls, String[][] allPairIdsOnAllNetworks) {
+    ArbitrageSystem(String arbitrageContractAddress, int waitTimeInMillis, String[] dexTheGraphHostUrls, String[][][] allPairIdsOnAllNetworks) {
         assert dexTheGraphHostUrls.length == allPairIdsOnAllNetworks.length;
         this.arbitrageContractAddress = arbitrageContractAddress;
         this.waitTimeInMillis = waitTimeInMillis;
@@ -47,7 +47,7 @@ public class ArbitrageSystem implements Runnable {
             allNetworkAllPairData.put(theGraphQueryMaker, hashMap);
 
 
-            String[] currentNetworkPairIds = allPairIdsOnAllNetworks[i];
+            String[][] currentNetworkPairIds = allPairIdsOnAllNetworks[i];
             int len = currentNetworkPairIds.length;
             if (len == 0) {
                 theGraphQueryMaker.isQueryMakerBad = true;
@@ -55,8 +55,10 @@ public class ArbitrageSystem implements Runnable {
             }
             StringBuilder stringBuilder = new StringBuilder("[");
             for (int j = 0; j < len; j++) {
-                hashMap.put(currentNetworkPairIds[j], new PairData(currentNetworkPairIds[j], "", ""));
-                stringBuilder.append("\"").append(currentNetworkPairIds[j]).append("\"");
+                hashMap.put(currentNetworkPairIds[j][0], new PairData(currentNetworkPairIds[j][0], currentNetworkPairIds[j][1],
+                        currentNetworkPairIds[j][2], currentNetworkPairIds[j][3], currentNetworkPairIds[j][4]
+                ));
+                stringBuilder.append("\"").append(currentNetworkPairIds[j][0]).append("\"");
                 if (j < len - 1) {
                     stringBuilder.append(", ");
                 }
@@ -96,6 +98,14 @@ public class ArbitrageSystem implements Runnable {
         shouldRunArbitrageSystem = false;
     }
 
+    public void printAllPairData() {
+        for (TheGraphQueryMaker theGraphQueryMaker : allQueryMakers) {
+            HashMap<String, PairData> currentNetworkPair = allNetworkAllPairData.get(theGraphQueryMaker);
+            System.out.println("PairData from the network URL: " + theGraphQueryMaker.getHostUrl());
+            System.out.println(currentNetworkPair);
+        }
+    }
+
     public void makeQueriesAndSetData() {
         for (TheGraphQueryMaker theGraphQueryMaker : allQueryMakers) {
 
@@ -110,23 +120,21 @@ public class ArbitrageSystem implements Runnable {
                     jsonObject = allPairs.getJSONObject(i);
                     pairData = allNetworkAllPairData.get(theGraphQueryMaker).get(jsonObject.getString("id"));
                     if (pairData == null) {
-                        pairData = new PairData(jsonObject.getString("id"), "", "");
+                        MainClass.logPrintStream.println("Found Rouge Key. Creating New PairData");
+                        pairData = new PairData(jsonObject.getString("id"), "", "", "", "");
                         allNetworkAllPairData.get(theGraphQueryMaker).put(jsonObject.getString("id"), pairData);
                     }
                     pairData.setToken0Volume(jsonObject.getString("reserve0"));
                     pairData.setToken1Volume(jsonObject.getString("reserve1"));
+                    pairData.calculateAndSetStaticData();
                 }
             }
         }
     }
 
-    public void printAllPairData() {
-        for (TheGraphQueryMaker theGraphQueryMaker : allQueryMakers) {
-            HashMap<String, PairData> currentNetworkPair = allNetworkAllPairData.get(theGraphQueryMaker);
-            System.out.println("PairData from the network URL: " + theGraphQueryMaker.getHostUrl());
-            System.out.println(currentNetworkPair);
-        }
-    }
+    public void analyseAllPairsForArbitragePossibility() {
+
+    } // Not yet Complete
 
     @Override
     public void run() {
