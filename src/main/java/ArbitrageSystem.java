@@ -1,3 +1,4 @@
+import org.json.JSONArray;
 import org.json.JSONObject;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.http.HttpService;
@@ -49,32 +50,35 @@ public class ArbitrageSystem implements Runnable {
 
     @Override
     public void run() {
-        TheGraphQueryMaker theGraphQueryMaker = new TheGraphQueryMaker("https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2");
-        theGraphQueryMaker.setGraphQLQuery("""
+        TheGraphQueryMaker uniSwapQueryMaker = new TheGraphQueryMaker("https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2");
+        TheGraphQueryMaker sushiSwapQueryMaker = new TheGraphQueryMaker("https://thegraph.com/explorer/subgraph/sushiswap/exchange");
+        uniSwapQueryMaker.setGraphQLQuery("""
                 {
-                    pairs(where :{token0: "0x1f6deadcb526c4710cf941872b86dcdfbbbd9211" }) {
-                        id
-                        token0{
-                            id
-                            symbol
-                        }
-                        token1 {
-                            id
-                            symbol
-                        }
-                    }
-                }"""
-        );
-        JSONObject outputJSON = theGraphQueryMaker.sendQuery();
-        if (outputJSON != null) {
-            MainClass.logPrintStream.println(outputJSON);
-        }
+                   pairs(where: {id_in: ["0x056bd5a0edee2bd5ba0b1a1671cf53aa22e03916"]}) {
+                     id
+                     token0 {
+                       id
+                     }
+                     token1 {
+                       id
+                     }
+                     reserve0
+                     reserve1
+                     token0Price
+                     token1Price
+                   }
+                 }""");
 
-//        buildWeb3j();
-//
-//        while (shouldRunArbitrageSystem) {
-//            // Do Something
-//        }
+        JSONObject queryOutput = uniSwapQueryMaker.sendQuery();
+        if (queryOutput != null) {
+            System.out.println(queryOutput);
+            JSONArray jsonArray = queryOutput.getJSONArray("pairs");
+            System.out.println("Array Size : " + jsonArray.length());
+            System.out.println("Array Data : ");
+            for (int i = 0; i < jsonArray.length(); i++) {
+                System.out.println(jsonArray.get(i));
+            }
+        }
 
         shutdownSystem();
     }

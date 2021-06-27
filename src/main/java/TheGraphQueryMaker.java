@@ -64,7 +64,7 @@ public class TheGraphQueryMaker {
         try {
             Response response = okHttpClient.newCall(request).execute();
             if (response.code() == 200) {
-                return new JSONObject(response.body().string());
+                return new JSONObject(response.body().string()).getJSONObject("data");
             } else {
                 throw new Exception("Invalid Query");
             }
