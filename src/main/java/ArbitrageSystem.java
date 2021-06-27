@@ -4,14 +4,24 @@ import org.web3j.protocol.Web3j;
 import org.web3j.protocol.http.HttpService;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 
 /*
  * Requires Environment Variable :-
- * 1. HttpsEndpoint : Https Url from services such as Infura, QuickNode, etc*/
+ * 1. HttpsEndpoint : Https Url from node hosting endpoint services such as Infura, QuickNode, etc
+ * -----------------------------------------------------------------------------------------
+ *
+ * System Assumptions: -
+ * (When not explicitly mentioned, or understood, then the following indexes mean 👇)
+ * 0 => UniSwap
+ * 1 => SushiSwap
+ * ------------------------------------------------------------------------------------------
+ * */
 public class ArbitrageSystem implements Runnable {
 
     // Manager Variables
     private volatile boolean shouldRunArbitrageSystem = true;
+    private final int waitTimeInMillis;
 
     // Web3 Related Variables
     private Web3j web3j;
@@ -20,10 +30,19 @@ public class ArbitrageSystem implements Runnable {
     private final ArrayList<String> allTokenAddressesToMonitor = new ArrayList<>();
     private final ArrayList<String> allExchangesToMonitor = new ArrayList<>();
     private final String arbitrageContractAddress;
+    private final ArrayList<TheGraphQueryMaker> allQueryMakers = new ArrayList<>();
+    private final HashMap<TheGraphQueryMaker, HashMap<String, PairData>> allNetworkAllPairData = new HashMap<>();
 
 
-    ArbitrageSystem(String arbitrageContractAddress) {
+    ArbitrageSystem(String arbitrageContractAddress, int waitTimeInMillis, String[] dexTheGraphHostUrls) {
         this.arbitrageContractAddress = arbitrageContractAddress;
+        this.waitTimeInMillis = waitTimeInMillis;
+
+        for (String dexTheGraphHostUrl : dexTheGraphHostUrls) {
+            TheGraphQueryMaker theGraphQueryMaker = new TheGraphQueryMaker(dexTheGraphHostUrl);
+            allQueryMakers.add(theGraphQueryMaker);
+            allNetworkAllPairData.put(theGraphQueryMaker, new HashMap<>());
+        }
     }
 
     public void shutdownSystem() {
@@ -48,38 +67,68 @@ public class ArbitrageSystem implements Runnable {
         shouldRunArbitrageSystem = false;
     }
 
+    public void makeQueriesAndSetData() {
+        for (TheGraphQueryMaker theGraphQueryMaker : allQueryMakers) {
+
+            JSONObject jsonObject = theGraphQueryMaker.sendQuery();
+
+            if (jsonObject != null) {
+
+                JSONArray allPairs = jsonObject.getJSONArray("pairs");
+                PairData pairData;
+
+                for (int i = 0; i < allPairs.length(); i++) {
+                    jsonObject = allPairs.getJSONObject(i);
+                    pairData = allNetworkAllPairData.get(theGraphQueryMaker).get(jsonObject.getString("id"));
+                    if (pairData == null) {
+                        pairData = new PairData(jsonObject.getString("id"), "", "");
+                        allNetworkAllPairData.get(theGraphQueryMaker).put(jsonObject.getString("id"), pairData);
+                    }
+                    pairData.setToken0Volume(jsonObject.getString("reserve0"));
+                    pairData.setToken1Volume(jsonObject.getString("reserve1"));
+                }
+            }
+        }
+    }
+
+    public void printAllPairData() {
+        for (TheGraphQueryMaker theGraphQueryMaker : allQueryMakers) {
+            HashMap<String, PairData> currentNetworkPair = allNetworkAllPairData.get(theGraphQueryMaker);
+            System.out.println("PairData from the network URL: " + theGraphQueryMaker.getHostUrl());
+            System.out.println(currentNetworkPair);
+        }
+    }
+
     @Override
     public void run() {
-        TheGraphQueryMaker uniSwapQueryMaker = new TheGraphQueryMaker("https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2");
-        TheGraphQueryMaker sushiSwapQueryMaker = new TheGraphQueryMaker("https://thegraph.com/explorer/subgraph/sushiswap/exchange");
-        uniSwapQueryMaker.setGraphQLQuery("""
-                {
-                   pairs(where: {id_in: ["0x056bd5a0edee2bd5ba0b1a1671cf53aa22e03916"]}) {
-                     id
-                     token0 {
-                       id
-                     }
-                     token1 {
-                       id
-                     }
-                     reserve0
-                     reserve1
-                     token0Price
-                     token1Price
-                   }
-                 }""");
+        MainClass.logPrintStream.println("Arbitrage System Running Now...");
+        System.out.println("Arbitrage System Running Now...");
 
-        JSONObject queryOutput = uniSwapQueryMaker.sendQuery();
-        if (queryOutput != null) {
-            System.out.println(queryOutput);
-            JSONArray jsonArray = queryOutput.getJSONArray("pairs");
-            System.out.println("Array Size : " + jsonArray.length());
-            System.out.println("Array Data : ");
-            for (int i = 0; i < jsonArray.length(); i++) {
-                System.out.println(jsonArray.get(i));
+        for (TheGraphQueryMaker theGraphQueryMaker : allQueryMakers) {
+            theGraphQueryMaker.setGraphQLQuery("""
+                    {
+                       pairs(where: {id_in: ["0x056bd5a0edee2bd5ba0b1a1671cf53aa22e03916"]}) {
+                         id
+                         reserve0
+                         reserve1
+                       }
+                    }""");
+        }
+
+        while (shouldRunArbitrageSystem) {
+            try {
+                Thread.sleep(waitTimeInMillis);
+            } catch (Exception e) {
+                e.printStackTrace(MainClass.logPrintStream);
             }
+            //--------------------------------------------------//
+
+            makeQueriesAndSetData();
+            printAllPairData();
         }
 
         shutdownSystem();
+        MainClass.logPrintStream.println("Arbitrage System Stopped Running...");
+        System.out.println("Arbitrage System Stopped Running...");
     }
 }

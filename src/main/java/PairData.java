@@ -43,4 +43,10 @@ public class PairData {
     public BigDecimal getDynamicAmountOnToken1Sell(BigDecimal sellAmount) {
         return (token0Volume.multiply(sellAmount)).divide((token1Volume.add(sellAmount)), RoundingMode.HALF_DOWN);
     }
+
+    @Override
+    public String toString() {
+        return "Pair Id: " + pairId + "\ntoken0: " + token0Id + "\ntoken1: " + token1Id + "\nVolume0: " + token0Volume + ", Volume1: " + token1Volume
+                + ", StaticPrice0: " + getToken0StaticPrice() + ", StaticPrice1: " + getToken1StaticPrice() + "\n";
+    }
 }

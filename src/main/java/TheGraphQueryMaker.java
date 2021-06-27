@@ -13,6 +13,10 @@ public class TheGraphQueryMaker {
         this.hostUrl = hostUrl;
     }
 
+    public String getHostUrl() {
+        return hostUrl;
+    }
+
     public void setGraphQLQuery(String query) {
         query = query
                 .replace("\n", " ")
@@ -64,9 +68,25 @@ public class TheGraphQueryMaker {
         try {
             Response response = okHttpClient.newCall(request).execute();
             if (response.code() == 200) {
-                return new JSONObject(response.body().string()).getJSONObject("data");
+                try {
+                    JSONObject jsonObject = new JSONObject(response.body().string()).getJSONObject("data");
+                    if (jsonObject != null) {
+                        return jsonObject;
+                    } else {
+                        throw new Exception("Invalid Query....");
+                    }
+                } catch (Exception e) {
+                    throw new Exception("Invalid Query. Response: " + new JSONObject((response.body().string())));
+                }
+            } else if (response.code() == 400) {
+                throw new Exception("Bad Request. Invalid Body of POST Request. Invalid Query String");
+            } else if (response.code() == 401) {
+                throw new Exception("Unauthorized. Maybe need some access token?");
+            } else if (response.code() == 403) {
+                throw new Exception("Access Forbidden. Oops... Server Banned You.... WTF");
             } else {
-                throw new Exception("Invalid Query");
+                throw new Exception("Some bullshit Error occurred for host: " + hostUrl +
+                        "\nError Code: " + response.code() + "\nMessage: " + response.body().string());
             }
         } catch (Exception e) {
             e.printStackTrace(MainClass.logPrintStream);
