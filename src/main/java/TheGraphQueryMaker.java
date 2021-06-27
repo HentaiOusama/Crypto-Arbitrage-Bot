@@ -8,6 +8,7 @@ public class TheGraphQueryMaker {
     private final OkHttpClient okHttpClient = new OkHttpClient();
     private final String hostUrl;
     private RequestBody requestBody;
+    public boolean isQueryMakerBad = false;
 
     TheGraphQueryMaker(String hostUrl) {
         this.hostUrl = hostUrl;
@@ -44,6 +45,7 @@ public class TheGraphQueryMaker {
          * Additionally, Refer: https://stackoverflow.com/questions/11769555/java-regular-expression-to-match-a-backslash-followed-by-a-quote#:~:text=To%20write%20a%20literal%20%5C%20in,Fun%2C%20eh%3F%20%E2%80%93
          * */
 
+        MainClass.logPrintStream.println("Host: " + getHostUrl());
         MainClass.logPrintStream.println("Final GraphQL Query :\n" + query + "\n---------------\n");
 
         /*
@@ -59,6 +61,9 @@ public class TheGraphQueryMaker {
     }
 
     public JSONObject sendQuery() {
+        if (isQueryMakerBad) {
+            return null;
+        }
         Request request = new Request.Builder()
                 .url(hostUrl)
                 .headers(Headers.of(Map.of("content-type", "application/json")))

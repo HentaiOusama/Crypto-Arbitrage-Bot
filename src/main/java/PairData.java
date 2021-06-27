@@ -46,7 +46,7 @@ public class PairData {
 
     @Override
     public String toString() {
-        return "Pair Id: " + pairId + "\ntoken0: " + token0Id + "\ntoken1: " + token1Id + "\nVolume0: " + token0Volume + ", Volume1: " + token1Volume
+        return ">\nPair Id: " + pairId + ", token0: " + token0Id + ", token1: " + token1Id + "\nVolume0: " + token0Volume + ", Volume1: " + token1Volume
                 + ", StaticPrice0: " + getToken0StaticPrice() + ", StaticPrice1: " + getToken1StaticPrice() + "\n";
     }
 }

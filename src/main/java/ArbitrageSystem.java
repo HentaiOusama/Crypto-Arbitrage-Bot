@@ -34,14 +34,43 @@ public class ArbitrageSystem implements Runnable {
     private final HashMap<TheGraphQueryMaker, HashMap<String, PairData>> allNetworkAllPairData = new HashMap<>();
 
 
-    ArbitrageSystem(String arbitrageContractAddress, int waitTimeInMillis, String[] dexTheGraphHostUrls) {
+    ArbitrageSystem(String arbitrageContractAddress, int waitTimeInMillis, String[] dexTheGraphHostUrls, String[][] allPairIdsOnAllNetworks) {
+        assert dexTheGraphHostUrls.length == allPairIdsOnAllNetworks.length;
         this.arbitrageContractAddress = arbitrageContractAddress;
         this.waitTimeInMillis = waitTimeInMillis;
 
-        for (String dexTheGraphHostUrl : dexTheGraphHostUrls) {
-            TheGraphQueryMaker theGraphQueryMaker = new TheGraphQueryMaker(dexTheGraphHostUrl);
+        int length = dexTheGraphHostUrls.length;
+        for (int i = 0; i < length; i++) {
+            TheGraphQueryMaker theGraphQueryMaker = new TheGraphQueryMaker(dexTheGraphHostUrls[i]);
             allQueryMakers.add(theGraphQueryMaker);
-            allNetworkAllPairData.put(theGraphQueryMaker, new HashMap<>());
+            HashMap<String, PairData> hashMap = new HashMap<>();
+            allNetworkAllPairData.put(theGraphQueryMaker, hashMap);
+
+
+            String[] currentNetworkPairIds = allPairIdsOnAllNetworks[i];
+            int len = currentNetworkPairIds.length;
+            if (len == 0) {
+                theGraphQueryMaker.isQueryMakerBad = true;
+                continue;
+            }
+            StringBuilder stringBuilder = new StringBuilder("[");
+            for (int j = 0; j < len; j++) {
+                hashMap.put(currentNetworkPairIds[j], new PairData(currentNetworkPairIds[j], "", ""));
+                stringBuilder.append("\"").append(currentNetworkPairIds[j]).append("\"");
+                if (j < len - 1) {
+                    stringBuilder.append(", ");
+                }
+            }
+            stringBuilder.append("]");
+
+            theGraphQueryMaker.setGraphQLQuery(String.format("""
+                    {
+                       pairs(where: {id_in: %s}) {
+                         id
+                         reserve0
+                         reserve1
+                       }
+                    }""", stringBuilder));
         }
     }
 
@@ -103,17 +132,6 @@ public class ArbitrageSystem implements Runnable {
     public void run() {
         MainClass.logPrintStream.println("Arbitrage System Running Now...");
         System.out.println("Arbitrage System Running Now...");
-
-        for (TheGraphQueryMaker theGraphQueryMaker : allQueryMakers) {
-            theGraphQueryMaker.setGraphQLQuery("""
-                    {
-                       pairs(where: {id_in: ["0x056bd5a0edee2bd5ba0b1a1671cf53aa22e03916"]}) {
-                         id
-                         reserve0
-                         reserve1
-                       }
-                    }""");
-        }
 
         while (shouldRunArbitrageSystem) {
             try {
