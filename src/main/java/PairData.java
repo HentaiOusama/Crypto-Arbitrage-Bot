@@ -3,7 +3,7 @@ import java.math.RoundingMode;
 
 public class PairData {
     public final String pairId, token0Id, token1Id, token0Symbol, token1Symbol;
-    public BigDecimal token0Volume, token1Volume, token0StaticPrice, token1StaticPrice;
+    private BigDecimal token0Volume, token1Volume, token0StaticPrice, token1StaticPrice;
 
     PairData(String pairId, String token0Id, String token1Id, String token0Symbol, String token1Symbol) {
         this.pairId = pairId;
@@ -15,25 +15,23 @@ public class PairData {
         token1Volume = BigDecimal.valueOf(0);
     }
 
-    public void setToken0Volume(String volume) {
-        token0Volume = new BigDecimal(volume);
-    }
-
-    public void setToken1Volume(String volume) {
-        token1Volume = new BigDecimal(volume);
+    public void setTokenVolumes(String volume0, String volume1) {
+        token0Volume = new BigDecimal(volume0);
+        token1Volume = new BigDecimal(volume1);
+        calculateAndSetStaticData();
     }
 
     public BigDecimal getToken0StaticPrice() {
-        return token1Volume.divide(token0Volume, RoundingMode.HALF_DOWN);
+        return token0StaticPrice;
     }
 
     public BigDecimal getToken1StaticPrice() {
-        return token0Volume.divide(token1Volume, RoundingMode.HALF_DOWN);
+        return token1StaticPrice;
     }
 
     public void calculateAndSetStaticData() {
-        token0StaticPrice = getToken0StaticPrice();
-        token1StaticPrice = getToken1StaticPrice();
+        token0StaticPrice = token1Volume.divide(token0Volume, RoundingMode.HALF_DOWN);
+        token1StaticPrice = token0Volume.divide(token1Volume, RoundingMode.HALF_DOWN);
     }
 
     /* Dynamic Amount: -
@@ -53,6 +51,6 @@ public class PairData {
     @Override
     public String toString() {
         return ">\nPair Id: " + pairId + ", token0: " + token0Id + ", token1: " + token1Id + "\nVolume0: " + token0Volume + ", Volume1: " + token1Volume
-                + ", StaticPrice0: " + getToken0StaticPrice() + ", StaticPrice1: " + getToken1StaticPrice() + "\n";
+                + ", StaticPrice0: " + token0StaticPrice + ", StaticPrice1: " + token1StaticPrice + "\n";
     }
 }

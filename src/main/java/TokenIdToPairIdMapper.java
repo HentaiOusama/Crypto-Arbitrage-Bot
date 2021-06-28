@@ -6,7 +6,7 @@ import java.util.HashMap;
  * It works on the general assumption of this project about the ordering of the GraphQueryMakers.
  * Main usability of this class comes when the data stored in the ArrayList of the HashMap is accessed in the same order as it was stored in.
  * */
-public class PairTracker extends HashMap<String, ArrayList<String>> {
+public class TokenIdToPairIdMapper extends HashMap<String, ArrayList<String>> {
 
     public int containsKey(String token0, String token1) {
         String key1 = token0 + ", " + token1;

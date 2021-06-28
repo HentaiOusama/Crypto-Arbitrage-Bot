@@ -17,7 +17,7 @@ import java.util.List;
 public class ArbitrageTelegramBot {
 
     // MongoDB Related Stuff
-    private final String botName = "Last Bounty Hunter Bot";
+    private final String botName = "Arbitrage Bot";
     private ClientSession clientSession;
     private MongoCollection<Document> allPairAndTrackersDataCollection;
 
@@ -91,7 +91,8 @@ public class ArbitrageTelegramBot {
     public void startArbitrageSystem() {
         getInitializingDataFromMongoDB();
 
-        ArbitrageSystem arbitrageSystem = new ArbitrageSystem("", 10000, allTrackerUrls, allPairIdsAndTokenDetails);
+        ArbitrageSystem arbitrageSystem = new ArbitrageSystem("", 10000, 0,
+                allTrackerUrls, allPairIdsAndTokenDetails);
 
         MainClass.logPrintStream.println("Call to Arbitrage Run Method");
         System.out.println("Call to Arbitrage Run Method");
