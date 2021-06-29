@@ -1,17 +1,22 @@
+package SupportingClasses;
+
 import okhttp3.*;
 import org.json.JSONObject;
 
+import java.io.PrintStream;
 import java.util.Map;
 
 public class TheGraphQueryMaker {
 
     private final OkHttpClient okHttpClient = new OkHttpClient();
     private final String hostUrl;
+    private final PrintStream logPrintStream;
     private RequestBody requestBody;
     public boolean isQueryMakerBad = false;
 
-    TheGraphQueryMaker(String hostUrl) {
+    public TheGraphQueryMaker(String hostUrl, PrintStream logPrintStream) {
         this.hostUrl = hostUrl;
+        this.logPrintStream = logPrintStream;
     }
 
     public String getHostUrl() {
@@ -45,8 +50,8 @@ public class TheGraphQueryMaker {
          * Additionally, Refer: https://stackoverflow.com/questions/11769555/java-regular-expression-to-match-a-backslash-followed-by-a-quote#:~:text=To%20write%20a%20literal%20%5C%20in,Fun%2C%20eh%3F%20%E2%80%93
          * */
 
-        MainClass.logPrintStream.println("Host: " + getHostUrl());
-        MainClass.logPrintStream.println("Final GraphQL Query :\n" + query + "\n---------------\n");
+        logPrintStream.println("Host: " + getHostUrl());
+        logPrintStream.println("Final GraphQL Query :\n" + query + "\n---------------\n");
 
         /*
          * Make the following JSON: -
@@ -94,7 +99,7 @@ public class TheGraphQueryMaker {
                         "\nError Code: " + response.code() + "\nMessage: " + response.body().string());
             }
         } catch (Exception e) {
-            e.printStackTrace(MainClass.logPrintStream);
+            e.printStackTrace(logPrintStream);
             return null;
         }
     }

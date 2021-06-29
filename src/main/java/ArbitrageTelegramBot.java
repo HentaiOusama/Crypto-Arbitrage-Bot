@@ -6,18 +6,31 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import org.bson.Document;
+import org.bson.conversions.Bson;
+import org.telegram.telegrambots.bots.TelegramLongPollingBot;
+import org.telegram.telegrambots.meta.api.methods.send.SendAnimation;
+import org.telegram.telegrambots.meta.api.methods.send.SendDocument;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.objects.InputFile;
+import org.telegram.telegrambots.meta.api.objects.Update;
 
+import java.io.File;
 import java.util.List;
 
 /*
  * Requirements: -
  * 1) Environment Var: mongoID - MongoDB ID
  * 2) Environment Var: mongoPass - MongoDB Password
+ * 3) Environment Var: ArbitrageBotToken - Telegram Bot Token
  * */
-public class ArbitrageTelegramBot {
+public class ArbitrageTelegramBot extends TelegramLongPollingBot {
+
+    // Manager Variables
+    private final String botToken = System.getenv("ArbitrageBotToken");
+    private boolean shouldRunBot;
+    private ArbitrageSystem arbitrageSystem;
 
     // MongoDB Related Stuff
-    private final String botName = "Arbitrage Bot";
     private ClientSession clientSession;
     private MongoCollection<Document> allPairAndTrackersDataCollection;
 
@@ -29,7 +42,13 @@ public class ArbitrageTelegramBot {
 
         initializeMongoSetup();
 
-        startArbitrageSystem();
+        Document document = new Document("identifier", "root");
+        Document foundDoc = allPairAndTrackersDataCollection.find(document).first();
+        assert foundDoc != null;
+        shouldRunBot = (boolean) foundDoc.get("shouldRunBot");
+        if (shouldRunBot) {
+            startArbitrageSystem();
+        }
     }
 
     private void initializeMongoSetup() {
@@ -91,21 +110,120 @@ public class ArbitrageTelegramBot {
     public void startArbitrageSystem() {
         getInitializingDataFromMongoDB();
 
-        ArbitrageSystem arbitrageSystem = new ArbitrageSystem("", 10000, 0,
-                allTrackerUrls, allPairIdsAndTokenDetails);
+        if (!shouldRunBot) {
+            Document document = new Document("identifier", "root");
+            Document foundDoc = allPairAndTrackersDataCollection.find(document).first();
+            assert foundDoc != null;
+            shouldRunBot = true;
+            document = new Document("shouldRunBot", true);
+            Bson updateAddyDocOperation = new Document("$set", document);
+            allPairAndTrackersDataCollection.updateOne(foundDoc, updateAddyDocOperation);
+        }
+
+        ArbitrageSystem arbitrageSystem = new ArbitrageSystem(this, "", 10000,
+                0, allTrackerUrls, allPairIdsAndTokenDetails);
 
         MainClass.logPrintStream.println("Call to Arbitrage Run Method");
         System.out.println("Call to Arbitrage Run Method");
         Thread t = new Thread(arbitrageSystem);
         t.start();
-        try {
-            Thread.sleep(2500);
-        } catch (Exception e) {
-            e.printStackTrace(MainClass.logPrintStream);
-        }
+        this.arbitrageSystem = arbitrageSystem;
+    }
+
+    public void stopArbitrageSystem() {
         MainClass.logPrintStream.println("Call to Arbitrage Stop System Method");
         System.out.println("Call to Arbitrage Stop System Method");
         arbitrageSystem.stopSystem();
+
+        if (shouldRunBot) {
+            Document document = new Document("identifier", "root");
+            Document foundDoc = allPairAndTrackersDataCollection.find(document).first();
+            assert foundDoc != null;
+            shouldRunBot = false;
+            document = new Document("shouldRunBot", false);
+            Bson updateAddyDocOperation = new Document("$set", document);
+            allPairAndTrackersDataCollection.updateOne(foundDoc, updateAddyDocOperation);
+        }
     }
 
+    public void sendMessage(String chat_id, String msg, String... url) {
+        if (url.length == 0) {
+            SendMessage sendMessage = new SendMessage();
+            sendMessage.setText(msg);
+            sendMessage.setChatId(chat_id);
+            try {
+                execute(sendMessage);
+            } catch (Exception e) {
+                e.printStackTrace(MainClass.logPrintStream);
+            }
+        } else {
+            SendAnimation sendAnimation = new SendAnimation();
+            sendAnimation.setAnimation(new InputFile().setMedia(url[(int) (Math.random() * (url.length))]));
+            sendAnimation.setCaption(msg);
+            sendAnimation.setChatId(chat_id);
+            try {
+                execute(sendAnimation);
+            } catch (Exception e) {
+                e.printStackTrace(MainClass.logPrintStream);
+            }
+        }
+    }
+
+    public void sendFile(String chatId, String fileName) {
+        SendDocument sendDocument = new SendDocument();
+        sendDocument.setChatId(chatId);
+        sendDocument.setDocument(new InputFile().setMedia(new File(fileName)));
+        sendDocument.setCaption(fileName);
+        try {
+            execute(sendDocument);
+        } catch (Exception e) {
+            e.printStackTrace(MainClass.logPrintStream);
+        }
+    }
+
+
+    @Override
+    public String getBotUsername() {
+        return "RJ_Ethereum_Arbitrage_Bot";
+    }
+
+    @Override
+    public String getBotToken() {
+        return botToken;
+    }
+
+    @Override
+    public void onUpdateReceived(Update update) {
+
+        // Need to add the authorized Check Using: update.getMessage().getChatId()
+        if (update.hasMessage() && update.getMessage().hasText()) {
+            String chatId = update.getMessage().getChatId().toString();
+            String text = update.getMessage().getText();
+            MainClass.logPrintStream.println("Incoming Message :\n" + text);
+
+            if (text.equalsIgnoreCase("runBot")) {
+                if (shouldRunBot) {
+                    sendMessage(chatId, "The bot is already running...");
+                } else {
+                    startArbitrageSystem();
+                    sendMessage(chatId, "Operation Successful...");
+                }
+            } else if (text.equalsIgnoreCase("stopBot")) {
+                if (!shouldRunBot) {
+                    sendMessage(chatId, "The bot is already stopped...");
+                } else {
+                    stopArbitrageSystem();
+                    sendMessage(chatId, "Operation Successful...");
+                }
+            } else if (text.equalsIgnoreCase("Commands")) {
+                sendMessage(chatId, """
+                        runBot
+                        stopBot
+                        Commands
+                        (amount has to be bigInteger including 18 decimal eth precision)""");
+            } else {
+                sendMessage(chatId, "Such command does not exists. BaaaaaaaaaKa");
+            }
+        }
+    }
 }

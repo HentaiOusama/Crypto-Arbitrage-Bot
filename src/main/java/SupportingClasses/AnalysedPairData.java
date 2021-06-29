@@ -1,3 +1,5 @@
+package SupportingClasses;
+
 import org.jetbrains.annotations.NotNull;
 
 import java.math.BigDecimal;
@@ -11,7 +13,7 @@ public class AnalysedPairData implements Comparable<AnalysedPairData> {
     public int minIndex, maxIndex;
     public final float priceDifferencePercentage;
 
-    AnalysedPairData(String pairKeyForMapper, BigDecimal minPrice, BigDecimal maxPrice, int minIndex, int maxIndex) {
+    public AnalysedPairData(String pairKeyForMapper, BigDecimal minPrice, BigDecimal maxPrice, int minIndex, int maxIndex) {
         this.pairKeyForMapper = pairKeyForMapper;
         this.minPrice = minPrice;
         this.maxPrice = maxPrice;

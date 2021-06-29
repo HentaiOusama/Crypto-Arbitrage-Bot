@@ -1,3 +1,5 @@
+package SupportingClasses;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
@@ -5,7 +7,7 @@ public class PairData {
     public final String pairId, token0Id, token1Id, token0Symbol, token1Symbol;
     private BigDecimal token0Volume, token1Volume, token0StaticPrice, token1StaticPrice;
 
-    PairData(String pairId, String token0Id, String token1Id, String token0Symbol, String token1Symbol) {
+    public PairData(String pairId, String token0Id, String token1Id, String token0Symbol, String token1Symbol) {
         this.pairId = pairId;
         this.token0Id = token0Id;
         this.token1Id = token1Id;

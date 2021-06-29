@@ -1,8 +1,15 @@
+import SupportingClasses.AnalysedPairData;
+import SupportingClasses.PairData;
+import SupportingClasses.TheGraphQueryMaker;
+import SupportingClasses.TokenIdToPairIdMapper;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.http.HttpService;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.PrintStream;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -27,6 +34,7 @@ public class ArbitrageSystem implements Runnable {
     private volatile boolean shouldRunArbitrageSystem = true;
     private final int waitTimeInMillis;
     private final float thresholdPriceDifferencePercentage;
+    private final ArbitrageTelegramBot arbitrageTelegramBot;
 
     // Web3 Related Variables
     private Web3j web3j;
@@ -36,14 +44,15 @@ public class ArbitrageSystem implements Runnable {
     private final ArrayList<String> allExchangesToMonitor = new ArrayList<>();
     private final String arbitrageContractAddress;
     private final ArrayList<TheGraphQueryMaker> allQueryMakers = new ArrayList<>();
-    // Mapping TheGraphQueryMaker to a mapping of pairId mapped to PairData 👇
+    // Mapping SupportingClasses.TheGraphQueryMaker to a mapping of pairId mapped to SupportingClasses.PairData 👇
     private final HashMap<TheGraphQueryMaker, HashMap<String, PairData>> allNetworkAllPairData = new HashMap<>();
     private final TokenIdToPairIdMapper tokenIdToPairIdMapper = new TokenIdToPairIdMapper();
     private final ArrayList<AnalysedPairData> allAnalysedPairData = new ArrayList<>();
 
 
-    ArbitrageSystem(String arbitrageContractAddress, int waitTimeInMillis, float thresholdPriceDifferencePercentage,
-                    String[] dexTheGraphHostUrls, String[][][] allPairIdsOnAllNetworks) {
+    ArbitrageSystem(ArbitrageTelegramBot arbitrageTelegramBot, String arbitrageContractAddress, int waitTimeInMillis,
+                    float thresholdPriceDifferencePercentage, String[] dexTheGraphHostUrls, String[][][] allPairIdsOnAllNetworks) {
+        this.arbitrageTelegramBot = arbitrageTelegramBot;
         assert dexTheGraphHostUrls.length == allPairIdsOnAllNetworks.length;
         this.arbitrageContractAddress = arbitrageContractAddress;
         this.waitTimeInMillis = waitTimeInMillis;
@@ -51,7 +60,7 @@ public class ArbitrageSystem implements Runnable {
 
         int length = dexTheGraphHostUrls.length;
         for (int i = 0; i < length; i++) {
-            TheGraphQueryMaker theGraphQueryMaker = new TheGraphQueryMaker(dexTheGraphHostUrls[i]);
+            TheGraphQueryMaker theGraphQueryMaker = new TheGraphQueryMaker(dexTheGraphHostUrls[i], MainClass.logPrintStream);
             allQueryMakers.add(theGraphQueryMaker);
             HashMap<String, PairData> hashMap = new HashMap<>();
             allNetworkAllPairData.put(theGraphQueryMaker, hashMap);
@@ -113,11 +122,11 @@ public class ArbitrageSystem implements Runnable {
         shouldRunArbitrageSystem = false;
     }
 
-    public void printAllDeterminedData(PrintStream... printStream) {
+    protected void printAllDeterminedData(PrintStream... printStream) {
         for (PrintStream currentPrintStream : printStream) {
-            currentPrintStream.println("------------------------------------------");
-            currentPrintStream.println("----- Printing all determined Data \uD83D\uDC47 -----");
-            currentPrintStream.println("------------------------------------------");
+            currentPrintStream.println("|------------------------------------------|");
+            currentPrintStream.println("|----- Printing all determined Data \uD83D\uDC47 ----|");
+            currentPrintStream.println("|------------------------------------------|");
         }
 
         for (TheGraphQueryMaker theGraphQueryMaker : allQueryMakers) {
@@ -134,6 +143,25 @@ public class ArbitrageSystem implements Runnable {
         }
         for (PrintStream currentPrintStream : printStream) {
             currentPrintStream.println(allAnalysedPairData);
+        }
+    }
+
+    public boolean printAllDeterminedData(String chatId) {
+        try {
+            File file = new File("GatheredData.txt");
+            if (!file.exists()) {
+                if (!file.createNewFile()) {
+                    return false;
+                }
+            }
+            FileOutputStream fileOutputStream = new FileOutputStream("GatheredData.txt");
+            PrintStream printStream = new PrintStream(fileOutputStream);
+            printAllDeterminedData(printStream);
+            arbitrageTelegramBot.sendFile(chatId, "GatheredData.txt");
+            return true;
+        } catch (IOException e) {
+            e.printStackTrace(MainClass.logPrintStream);
+            return false;
         }
     }
 
