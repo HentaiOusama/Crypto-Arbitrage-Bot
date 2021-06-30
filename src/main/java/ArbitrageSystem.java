@@ -226,7 +226,7 @@ public class ArbitrageSystem implements Runnable {
                 printStream.println(analysedPairData);
             }
 
-            printStream.println("\nThreshold Used : " + thresholdPriceDifferencePercentage + " %");
+            printStream.println("\nThreshold Percentage Difference Used : " + thresholdPriceDifferencePercentage + " %");
             printStream.println("\n\n\n");
             printStream.println("|------------------------------------------|");
             printStream.println("|--------- Data Printing Complete  --------|");
@@ -324,7 +324,7 @@ public class ArbitrageSystem implements Runnable {
     public void run() {
         MainClass.logPrintStream.println("Arbitrage System Running Now...");
         System.out.println("Arbitrage System Running Now...");
-        int count = 0;
+        int count = 9;
 
         while (shouldRunArbitrageSystem) {
             try {
@@ -336,11 +336,11 @@ public class ArbitrageSystem implements Runnable {
 
             makeQueriesAndSetData();
             analyseAllPairsForArbitragePossibility(thresholdPriceDifferencePercentage);
-            if (count == 9) {
+            if (count == 0) {
                 printAllDeterminedData(MainClass.logPrintStream);
-                count = 0;
+                count = 9;
             } else {
-                count++;
+                count--;
             }
         }
 

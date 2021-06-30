@@ -91,7 +91,7 @@
                     <programs>
                         <program>
                             <mainClass>MainClass</mainClass>
-                            <id>worker</id>
+                            <name>worker</name>
                         </program>
                     </programs>
                 </configuration>
