@@ -184,42 +184,70 @@ public class ArbitrageSystem implements Runnable {
         shouldRunArbitrageSystem = false;
     }
 
-    protected void printAllDeterminedData(PrintStream... printStream) {
-        for (PrintStream currentPrintStream : printStream) {
-            currentPrintStream.println("|------------------------------------------|");
-            currentPrintStream.println("|----- Printing all determined Data \uD83D\uDC47 ----|");
-            currentPrintStream.println("|------------------------------------------|");
+    protected void printAllDeterminedData(PrintStream... printStreams) {
+        for (PrintStream printStream : printStreams) {
+            printStream.println("|------------------------------------------|");
+            printStream.println("|------ Printing All Determined Data  -----|");
+            printStream.println("|------------------------------------------|\n\n\n");
+            printStream.println("Pair Id,Token 0 Symbol,Token 1 Symbol,Token 0 Volume,Token 1 Volume,Token 0 StaticPrice,Token 1 Static" +
+                    "Price,Last Update Time,Network Name\n");
         }
 
         for (TheGraphQueryMaker theGraphQueryMaker : allQueryMakers) {
             HashMap<String, PairData> currentNetworkPair = allNetworkAllPairData.get(theGraphQueryMaker);
-            for (PrintStream currentPrintStream : printStream) {
-                currentPrintStream.println("PairData from the network URL: " + theGraphQueryMaker.getHostUrl());
-                currentPrintStream.println(currentNetworkPair);
-                currentPrintStream.println("-----");
+            Set<String> keys = currentNetworkPair.keySet();
+
+            StringBuilder allPairDataInCSVFormat = new StringBuilder();
+            for (String key : keys) {
+                allPairDataInCSVFormat
+                        .append(currentNetworkPair.get(key))
+                        .append(",")
+                        .append(theGraphQueryMaker.getHostUrl())
+                        .append("\n");
+            }
+
+            for (PrintStream printStream : printStreams) {
+                printStream.print(allPairDataInCSVFormat);
+                printStream.println("--------,--------,--------,--------,--------,--------,--------,--------,--------");
             }
         }
 
-        for (PrintStream currentPrintStream : printStream) {
-            currentPrintStream.println("------------------------------------------");
-        }
-        for (PrintStream currentPrintStream : printStream) {
-            currentPrintStream.println(allAnalysedPairData);
+        for (PrintStream printStream : printStreams) {
+            printStream.println("""
+                                
+                                
+                    |------------------------------------------|
+                    |------ Trimmed Data After Analysis -------|
+                    |------------------------------------------|
+                    """);
+            printStream.println("PairKeyForMapper,Min Price,Max Price,Price Difference,Price Difference (%)\n");
+
+            for (AnalysedPairData analysedPairData : allAnalysedPairData) {
+                printStream.println(analysedPairData);
+            }
+
+            printStream.println("\nThreshold Used : " + thresholdPriceDifferencePercentage + " %");
+            printStream.println("\n\n\n");
+            printStream.println("|------------------------------------------|");
+            printStream.println("|--------- Data Printing Complete  --------|");
+            printStream.println("|------------------------------------------|");
         }
     }
 
     public boolean printAllDeterminedData(String chatId) {
         try {
-            File file = new File("GatheredData.txt");
+            File file = new File("GatheredData.csv");
             if (!file.exists()) {
                 if (!file.createNewFile()) {
                     return false;
                 }
             }
-            FileOutputStream fileOutputStream = new FileOutputStream("GatheredData.txt");
+            FileOutputStream fileOutputStream = new FileOutputStream("GatheredData.csv");
             PrintStream printStream = new PrintStream(fileOutputStream);
             printAllDeterminedData(printStream);
-            arbitrageTelegramBot.sendFile(chatId, "GatheredData.txt");
+            arbitrageTelegramBot.sendFile(chatId, "GatheredData.csv");
+            printStream.close();
+            fileOutputStream.close();
             return true;
         } catch (IOException e) {
             e.printStackTrace(MainClass.logPrintStream);

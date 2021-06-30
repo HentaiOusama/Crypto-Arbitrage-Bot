@@ -59,8 +59,7 @@ public class PairData {
 
     @Override
     public String toString() {
-        return ">\nPair Id: " + pairId + ", token0: " + token0Id + ", token1: " + token1Id + "\nVolume0: " + token0Volume + ", Volume1: " + token1Volume
-                + ", StaticPrice0: " + token0StaticPrice + ", StaticPrice1: " + token1StaticPrice + "\n" + "LastUpdateTime: " +
-                simpleDateFormat.format(Date.from(lastUpdateMoment)) + " (+0:00 UTC)\n";
+        return "" + pairId + "," + token0Symbol + "," + token1Symbol + "," + token0Volume + "," + token1Volume + "," + token0StaticPrice + "," +
+                token1StaticPrice + "," + simpleDateFormat.format(Date.from(lastUpdateMoment)) + " (+0:00 UTC)";
     }
 }

@@ -46,7 +46,16 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
             @Override
             public void run() {
                 super.run();
-                // Not yet Complete
+                System.out.println("Shutdown Handler Called...");
+                try {
+                    MainClass.logPrintStream.println("Shutdown Handler Called...");
+                    MainClass.logPrintStream.close();
+                    MainClass.fileOutputStream.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+
+                System.out.println("Shutdown Successful...");
             }
         });
 
@@ -188,6 +197,21 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
             execute(sendDocument);
         } catch (Exception e) {
             e.printStackTrace(MainClass.logPrintStream);
+        }
+    }
+
+    private void sendLogs(String chatId) {
+        SendDocument sendDocument = new SendDocument();
+        sendDocument.setChatId(chatId);
+        MainClass.logPrintStream.flush();
+        sendDocument.setDocument(new InputFile().setMedia(new File("OutputLogs.txt")));
+        sendDocument.setCaption("Latest Logs");
+        try {
+            execute(sendDocument);
+        } catch (Exception e) {
+            sendMessage(chatId, "Error in sending Logs\n" + Arrays.toString(e.getStackTrace()));
+            e.printStackTrace(MainClass.logPrintStream);
+            e.printStackTrace();
         }
     }
 
@@ -352,21 +376,6 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         } else {
             sendMessage(chatId, "Wrong Usage of Command. Correct format: -\n" +
                     "addNewPair token0Address token1Address");
-        }
-    }
-
-    private void sendLogs(String chatId) {
-        SendDocument sendDocument = new SendDocument();
-        sendDocument.setChatId(chatId);
-        MainClass.logPrintStream.flush();
-        sendDocument.setDocument(new InputFile().setMedia(new File("OutputLogs.txt")));
-        sendDocument.setCaption("Latest Logs");
-        try {
-            execute(sendDocument);
-        } catch (Exception e) {
-            sendMessage(chatId, "Error in sending Logs\n" + Arrays.toString(e.getStackTrace()));
-            e.printStackTrace(MainClass.logPrintStream);
-            e.printStackTrace();
         }
     }
 }

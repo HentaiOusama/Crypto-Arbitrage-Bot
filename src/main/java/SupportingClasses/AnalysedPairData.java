@@ -30,7 +30,6 @@ public class AnalysedPairData implements Comparable<AnalysedPairData> {
 
     @Override
     public String toString() {
-        return "PairKeyForMapper: (" + pairKeyForMapper + "), minPrice: " + minPrice + ", maxPrice: " + maxPrice +
-                ", priceDifference: " + priceDifference + ", priceDifferencePercentage: " + priceDifferencePercentage;
+        return "(" + pairKeyForMapper + ")," + minPrice + "," + maxPrice + "," + priceDifference + "," + priceDifferencePercentage;
     }
 }
