@@ -20,7 +20,10 @@ import org.telegram.telegrambots.meta.api.objects.Update;
 
 import java.io.*;
 import java.math.BigDecimal;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Set;
 
 /*
  * Requirements: -
@@ -37,6 +40,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
     private final ArrayList<String> allAdmins = new ArrayList<>();
     private final ArrayList<String> tempList = new ArrayList<>();
     private String thresholdPercentage;
+    private int pollingInterval = 15000; // Milliseconds
 
     // MongoDB Related Stuff
     private ClientSession clientSession;
@@ -156,7 +160,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
             allPairAndTrackersDataCollection.updateOne(foundDoc, updateOperation);
         }
 
-        ArbitrageSystem arbitrageSystem = new ArbitrageSystem(this, "", 12500,
+        ArbitrageSystem arbitrageSystem = new ArbitrageSystem(this, "", pollingInterval,
                 thresholdPercentage, allTrackerUrls, allPairIdsAndTokenDetails);
 
         MainClass.logPrintStream.println("Call to Arbitrage Run Method");
@@ -269,7 +273,6 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                         String newPairId = result.remove(0);
                         if (!newPairId.equalsIgnoreCase("")) {
                             allPairIds.add(newPairId);
-                            Collections.sort(allPairIds);
 
                             document = new Document("allPairIds", allPairIds);
                             List<String> newData = new ArrayList<>();
@@ -469,7 +472,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                         }
 
                     } catch (NumberFormatException e) {
-                        sendMessage(chatId, "The decimalValue has to be a integer or a decimal between 0 and 100");
+                        sendMessage(chatId, "Invalid Format... The decimalValue has to be a integer or a decimal between 0 and 100");
                     }
                 } else {
                     sendMessage(chatId, "Wrong Usage of Command. Correct Format : \n" +
@@ -536,7 +539,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 sendMessage(chatId, "Such command does not exists. BaaaaaaaaaKa");
             }
 
-            sendMessage(chatId, "shouldRunBot : " + shouldRunBot + "\nThreshold Percentage : " + thresholdPercentage);
+            sendMessage(chatId, "shouldRunBot : " + shouldRunBot + "\nThreshold Percentage : " + thresholdPercentage + "%");
         }
     }
 }

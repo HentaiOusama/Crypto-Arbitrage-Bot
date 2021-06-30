@@ -34,6 +34,6 @@ public class AnalysedPairData implements Comparable<AnalysedPairData> {
 
     @Override
     public String toString() {
-        return "" + token0 + "," + token1 + "," + minPrice + "," + maxPrice + "," + priceDifference + "," + priceDifferencePercentage;
+        return "," + token0 + "," + token1 + "," + minPrice + "," + maxPrice + "," + priceDifference + "," + priceDifferencePercentage;
     }
 }
