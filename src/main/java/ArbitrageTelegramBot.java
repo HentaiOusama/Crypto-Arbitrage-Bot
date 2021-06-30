@@ -19,6 +19,7 @@ import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.api.objects.Update;
 
 import java.io.*;
+import java.math.BigDecimal;
 import java.util.*;
 
 /*
@@ -35,7 +36,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
     private ArbitrageSystem arbitrageSystem;
     private final ArrayList<String> allAdmins = new ArrayList<>();
     private final ArrayList<String> tempList = new ArrayList<>();
-    private float thresholdPercentage;
+    private String thresholdPercentage;
 
     // MongoDB Related Stuff
     private ClientSession clientSession;
@@ -76,6 +77,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 allAdmins.add((String) item);
             }
         }
+        MainClass.logPrintStream.println("Admins : \n" + allAdmins + "\n\n");
         if (shouldRunBot) {
             startArbitrageSystem();
         }
@@ -99,7 +101,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         Document foundDoc = allPairAndTrackersDataCollection.find(document).first();
         assert foundDoc != null;
 
-        thresholdPercentage = (float) foundDoc.get("thresholdPercentage");
+        thresholdPercentage = (String) foundDoc.get("thresholdPercentage");
 
         List<?> list1 = (List<?>) foundDoc.get("TrackerUrls");
         int len1 = list1.size();
@@ -227,133 +229,6 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
             sendMessage(chatId, "Error in sending Logs\n" + Arrays.toString(e.getStackTrace()));
             e.printStackTrace(MainClass.logPrintStream);
             e.printStackTrace();
-        }
-    }
-
-
-    @Override
-    public String getBotUsername() {
-        return "RJ_Ethereum_Arbitrage_Bot";
-    }
-
-    @Override
-    public String getBotToken() {
-        return botToken;
-    }
-
-    @Override
-    public void onUpdateReceived(Update update) {
-
-        // Need to add the authorized Check Using: update.getMessage().getChatId()
-        if (update.hasMessage() && update.getMessage().hasText()) {
-            String chatId = update.getMessage().getChatId().toString();
-            String text = update.getMessage().getText();
-            MainClass.logPrintStream.println("From : " + chatId + "\nIncoming Message :\n" + text);
-
-            if (!allAdmins.contains(chatId)) {
-                sendMessage(chatId, "This bot can only be used by authorized personnel. Sorry....");
-                return;
-            }
-
-            if (text.equalsIgnoreCase("runBot")) {
-                if (shouldRunBot) {
-                    sendMessage(chatId, "The bot is already running...");
-                } else {
-                    startArbitrageSystem();
-                    sendMessage(chatId, "Operation Successful...");
-                }
-            } else if (text.equalsIgnoreCase("stopBot")) {
-                if (!shouldRunBot) {
-                    sendMessage(chatId, "The bot is already stopped...");
-                } else {
-                    stopArbitrageSystem();
-                    sendMessage(chatId, "Operation Successful...");
-                }
-            } else if (text.toLowerCase().startsWith("setThresholdPercentage".toLowerCase())) {
-                String[] params = text.trim().split(" ");
-                if (params.length == 2) {
-                    try {
-                        thresholdPercentage = Float.parseFloat(params[1]);
-                        Document document = new Document("identifier", "root");
-                        Document foundDoc = allPairAndTrackersDataCollection.find(document).first();
-                        assert foundDoc != null;
-                        document = new Document("thresholdPercentage", thresholdPercentage);
-                        Bson updateOperation = new Document("$set", document);
-                        allPairAndTrackersDataCollection.updateOne(foundDoc, updateOperation);
-
-                        if (shouldRunBot) {
-                            arbitrageSystem.thresholdPriceDifferencePercentage = thresholdPercentage;
-                        }
-
-                    } catch (NumberFormatException e) {
-                        sendMessage(chatId, "The decimalValue has to be a integer or a decimal between 0 and 100");
-                    }
-                } else {
-                    sendMessage(chatId, "Wrong Usage of Command. Correct Format : \n" +
-                            "setThresholdPercentage decimalValue");
-                }
-            } else if (text.toLowerCase().startsWith("addNewPair".toLowerCase())) {
-                if (!shouldRunBot) {
-                    sendMessage(chatId, "This command can only be used when the bot is running...");
-                } else {
-                    addNewPair(chatId, text);
-                }
-            } else if (text.toLowerCase().startsWith("addNewTrackerUrl".toLowerCase())) {
-                addNewTracker(chatId, text);
-            } else if (text.equalsIgnoreCase("getAllPairDetails")) {
-                if (!shouldRunBot) {
-                    sendMessage(chatId, "This command can only be used when the bot is running...");
-                } else {
-                    if (!arbitrageSystem.printAllDeterminedData(chatId)) {
-                        sendMessage(chatId, "Error while generating data...");
-                    }
-                }
-            } else if (text.equalsIgnoreCase("getLogs")) {
-                sendLogs(chatId);
-            } else if (text.equalsIgnoreCase("clearLogs")) {
-                if (MainClass.logPrintStream != null) {
-                    MainClass.logPrintStream.flush();
-                }
-                try {
-                    MainClass.fileOutputStream = new FileOutputStream("OutputLogs.txt");
-                } catch (FileNotFoundException e) {
-                    e.printStackTrace();
-                }
-                MainClass.logPrintStream = new PrintStream(MainClass.fileOutputStream) {
-
-                    @Override
-                    public void println(@Nullable String x) {
-                        super.println("----------------------------- (Open)");
-                        super.println(x);
-                        super.println("----------------------------- (Close)\n\n");
-                    }
-
-                    @Override
-                    public void close() {
-                        try {
-                            MainClass.fileOutputStream.close();
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                        super.close();
-                    }
-                };
-            } else if (text.equalsIgnoreCase("Commands")) {
-                sendMessage(chatId, """
-                        runBot
-                        stopBot
-                        setThresholdPercentage decimalValue
-                        addNewPair token0Addy token1Addy
-                        addNewTrackerUrl theGraphUrl
-                        getAllPairDetails
-                        getLogs
-                        clearLogs
-                        Commands""");
-            } else {
-                sendMessage(chatId, "Such command does not exists. BaaaaaaaaaKa");
-            }
-
-            sendMessage(chatId, "shouldRunBot : " + shouldRunBot + "\nThreshold Percentage : " + thresholdPercentage);
         }
     }
 
@@ -530,6 +405,138 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         } else {
             sendMessage(chatId, "Wrong usage of command. Correct Format: -\n" +
                     "addNewTracker theGraphUrlEndpoint");
+        }
+    }
+
+
+    @Override
+    public String getBotUsername() {
+        return "RJ_Ethereum_Arbitrage_Bot";
+    }
+
+    @Override
+    public String getBotToken() {
+        return botToken;
+    }
+
+    @Override
+    public void onUpdateReceived(Update update) {
+
+        // Need to add the authorized Check Using: update.getMessage().getChatId()
+        if (update.hasMessage() && update.getMessage().hasText()) {
+            String chatId = update.getMessage().getChatId().toString();
+            String text = update.getMessage().getText();
+            MainClass.logPrintStream.println("From : " + chatId + "\nIncoming Message :\n" + text + "\n\n");
+
+            if (!allAdmins.contains(chatId)) {
+                sendMessage(chatId, "This bot can only be used by authorized personnel. Sorry....");
+                return;
+            }
+
+            if (text.equalsIgnoreCase("runBot")) {
+                if (shouldRunBot) {
+                    sendMessage(chatId, "The bot is already running...");
+                } else {
+                    try {
+                        startArbitrageSystem();
+                        sendMessage(chatId, "Operation Successful...");
+                    } catch (Exception e) {
+                        sendMessage(chatId, "There was an error while starting the bot... Please contact : @OreGaZembuTouchiSuru");
+                        e.printStackTrace(MainClass.logPrintStream);
+                    }
+                }
+            } else if (text.equalsIgnoreCase("stopBot")) {
+                if (!shouldRunBot) {
+                    sendMessage(chatId, "The bot is already stopped...");
+                } else {
+                    stopArbitrageSystem();
+                    sendMessage(chatId, "Operation Successful...");
+                }
+            } else if (text.toLowerCase().startsWith("setThresholdPercentage".toLowerCase())) {
+                String[] params = text.trim().split(" ");
+                if (params.length == 2) {
+                    try {
+                        thresholdPercentage = params[1];
+                        Document document = new Document("identifier", "root");
+                        Document foundDoc = allPairAndTrackersDataCollection.find(document).first();
+                        assert foundDoc != null;
+                        document = new Document("thresholdPercentage", thresholdPercentage);
+                        Bson updateOperation = new Document("$set", document);
+                        allPairAndTrackersDataCollection.updateOne(foundDoc, updateOperation);
+
+                        if (shouldRunBot) {
+                            arbitrageSystem.thresholdPriceDifferencePercentage = new BigDecimal(thresholdPercentage);
+                        }
+
+                    } catch (NumberFormatException e) {
+                        sendMessage(chatId, "The decimalValue has to be a integer or a decimal between 0 and 100");
+                    }
+                } else {
+                    sendMessage(chatId, "Wrong Usage of Command. Correct Format : \n" +
+                            "setThresholdPercentage decimalValue");
+                }
+            } else if (text.toLowerCase().startsWith("addNewPair".toLowerCase())) {
+                if (!shouldRunBot) {
+                    sendMessage(chatId, "This command can only be used when the bot is running...");
+                } else {
+                    addNewPair(chatId, text);
+                }
+            } else if (text.toLowerCase().startsWith("addNewTrackerUrl".toLowerCase())) {
+                addNewTracker(chatId, text);
+            } else if (text.equalsIgnoreCase("getAllPairDetails")) {
+                if (!shouldRunBot) {
+                    sendMessage(chatId, "This command can only be used when the bot is running...");
+                } else {
+                    if (!arbitrageSystem.printAllDeterminedData(chatId)) {
+                        sendMessage(chatId, "Error while generating data...");
+                    }
+                }
+            } else if (text.equalsIgnoreCase("getLogs")) {
+                sendLogs(chatId);
+            } else if (text.equalsIgnoreCase("clearLogs")) {
+                if (MainClass.logPrintStream != null) {
+                    MainClass.logPrintStream.flush();
+                }
+                try {
+                    MainClass.fileOutputStream = new FileOutputStream("OutputLogs.txt");
+                } catch (FileNotFoundException e) {
+                    e.printStackTrace();
+                }
+                MainClass.logPrintStream = new PrintStream(MainClass.fileOutputStream) {
+
+                    @Override
+                    public void println(@Nullable String x) {
+                        super.println("----------------------------- (Open)");
+                        super.println(x);
+                        super.println("----------------------------- (Close)\n\n");
+                    }
+
+                    @Override
+                    public void close() {
+                        try {
+                            MainClass.fileOutputStream.close();
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                        super.close();
+                    }
+                };
+            } else if (text.equalsIgnoreCase("Commands")) {
+                sendMessage(chatId, """
+                        runBot
+                        stopBot
+                        setThresholdPercentage decimalValue
+                        addNewPair token0Addy token1Addy
+                        addNewTrackerUrl theGraphUrl
+                        getAllPairDetails
+                        getLogs
+                        clearLogs
+                        Commands""");
+            } else {
+                sendMessage(chatId, "Such command does not exists. BaaaaaaaaaKa");
+            }
+
+            sendMessage(chatId, "shouldRunBot : " + shouldRunBot + "\nThreshold Percentage : " + thresholdPercentage);
         }
     }
 }

@@ -30,7 +30,7 @@ public class ArbitrageSystem implements Runnable {
     // Manager Variables
     private volatile boolean shouldRunArbitrageSystem = true;
     private final int waitTimeInMillis;
-    public float thresholdPriceDifferencePercentage;
+    public BigDecimal thresholdPriceDifferencePercentage;
     private final ArbitrageTelegramBot arbitrageTelegramBot;
 
     // Web3 Related Variables
@@ -47,11 +47,11 @@ public class ArbitrageSystem implements Runnable {
 
 
     ArbitrageSystem(ArbitrageTelegramBot arbitrageTelegramBot, String arbitrageContractAddress, int waitTimeInMillis,
-                    float thresholdPriceDifferencePercentage, String[] dexTheGraphHostUrls, String[][][] allPairIdsOnAllNetworks) {
+                    String thresholdPriceDifferencePercentage, String[] dexTheGraphHostUrls, String[][][] allPairIdsOnAllNetworks) {
         this.arbitrageTelegramBot = arbitrageTelegramBot;
         this.arbitrageContractAddress = arbitrageContractAddress;
         this.waitTimeInMillis = waitTimeInMillis;
-        this.thresholdPriceDifferencePercentage = thresholdPriceDifferencePercentage;
+        this.thresholdPriceDifferencePercentage = new BigDecimal(thresholdPriceDifferencePercentage);
         this.allExchangesToMonitor.addAll(Arrays.asList(dexTheGraphHostUrls));
 
         int length = dexTheGraphHostUrls.length;
@@ -288,7 +288,7 @@ public class ArbitrageSystem implements Runnable {
         }
     }
 
-    public void analyseAllPairsForArbitragePossibility(float thresholdPriceDifferencePercentage) {
+    public void analyseAllPairsForArbitragePossibility() {
 
         allAnalysedPairData.clear();
         Set<String> keys = tokenIdToPairIdMapper.keySet();
@@ -320,7 +320,7 @@ public class ArbitrageSystem implements Runnable {
             }
 
             AnalysedPairData analysedPairData = new AnalysedPairData(key, token0, token1, minPrice, maxPrice, minIndex, maxIndex);
-            if (analysedPairData.priceDifferencePercentage >= thresholdPriceDifferencePercentage) {
+            if (thresholdPriceDifferencePercentage.compareTo(BigDecimal.valueOf(analysedPairData.priceDifferencePercentage)) <= 0) {
                 allAnalysedPairData.add(analysedPairData);
             }
         }
@@ -347,7 +347,7 @@ public class ArbitrageSystem implements Runnable {
             //--------------------------------------------------//
 
             makeQueriesAndSetData();
-            analyseAllPairsForArbitragePossibility(thresholdPriceDifferencePercentage);
+            analyseAllPairsForArbitragePossibility();
             if (count == 0) {
                 printAllDeterminedData(MainClass.logPrintStream);
                 count = 9;
