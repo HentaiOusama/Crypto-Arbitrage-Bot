@@ -2,10 +2,15 @@ package SupportingClasses;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.util.Date;
 
 public class PairData {
     public final String pairId, token0Id, token1Id, token0Symbol, token1Symbol;
     private BigDecimal token0Volume, token1Volume, token0StaticPrice, token1StaticPrice;
+    private Instant lastUpdateMoment;
+    private static final SimpleDateFormat simpleDateFormat = new SimpleDateFormat("dd/MM/yyyy hh:mm:ss a");
 
     public PairData(String pairId, String token0Id, String token1Id, String token0Symbol, String token1Symbol) {
         this.pairId = pairId;
@@ -15,6 +20,7 @@ public class PairData {
         this.token1Symbol = token1Symbol;
         token0Volume = BigDecimal.valueOf(0);
         token1Volume = BigDecimal.valueOf(0);
+        lastUpdateMoment = Instant.now();
     }
 
     public void setTokenVolumes(String volume0, String volume1) {
@@ -34,6 +40,7 @@ public class PairData {
     public void calculateAndSetStaticData() {
         token0StaticPrice = token1Volume.divide(token0Volume, RoundingMode.HALF_DOWN);
         token1StaticPrice = token0Volume.divide(token1Volume, RoundingMode.HALF_DOWN);
+        lastUpdateMoment = Instant.now();
     }
 
     /* Dynamic Amount: -
@@ -53,6 +60,7 @@ public class PairData {
     @Override
     public String toString() {
         return ">\nPair Id: " + pairId + ", token0: " + token0Id + ", token1: " + token1Id + "\nVolume0: " + token0Volume + ", Volume1: " + token1Volume
-                + ", StaticPrice0: " + token0StaticPrice + ", StaticPrice1: " + token1StaticPrice + "\n";
+                + ", StaticPrice0: " + token0StaticPrice + ", StaticPrice1: " + token1StaticPrice + "\n" + "LastUpdateTime: " +
+                simpleDateFormat.format(Date.from(lastUpdateMoment)) + " (+0:00 UTC)\n";
     }
 }

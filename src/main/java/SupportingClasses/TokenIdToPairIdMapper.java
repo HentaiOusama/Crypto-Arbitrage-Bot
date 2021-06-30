@@ -11,6 +11,16 @@ import java.util.HashMap;
 public class TokenIdToPairIdMapper extends HashMap<String, ArrayList<String>> {
 
     public int containsKey(String token0, String token1) {
+
+        token0 = token0.toLowerCase();
+        token1 = token1.toLowerCase();
+
+        if (token0.compareTo(token1) > 0) {
+            String temp = token0;
+            token0 = token1;
+            token1 = temp;
+        }
+
         String key1 = token0 + ", " + token1;
         String key2 = token1 + ", " + token0;
         if (this.containsKey(key1)) {
@@ -23,6 +33,16 @@ public class TokenIdToPairIdMapper extends HashMap<String, ArrayList<String>> {
     }
 
     public ArrayList<String> getAllTrackers(String token0, String token1) {
+
+        token0 = token0.toLowerCase();
+        token1 = token1.toLowerCase();
+
+        if (token0.compareTo(token1) > 0) {
+            String temp = token0;
+            token0 = token1;
+            token1 = temp;
+        }
+
         ArrayList<String> retVal;
         retVal = this.get(token0 + ", " + token1);
         if (retVal != null) {
@@ -33,6 +53,16 @@ public class TokenIdToPairIdMapper extends HashMap<String, ArrayList<String>> {
     }
 
     public void addPairTracker(String token0, String token1, String pairId) {
+
+        token0 = token0.toLowerCase();
+        token1 = token1.toLowerCase();
+
+        if (token0.compareTo(token1) > 0) {
+            String temp = token0;
+            token0 = token1;
+            token1 = temp;
+        }
+
         if (containsKey(token0, token1) == -1) {
             ArrayList<String> arrayList = new ArrayList<>();
             arrayList.add(pairId);

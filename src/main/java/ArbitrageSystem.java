@@ -12,10 +12,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Set;
+import java.util.*;
 
 /*
  * Requires Environment Variable :-
@@ -40,7 +37,6 @@ public class ArbitrageSystem implements Runnable {
     private Web3j web3j;
 
     // Crypto Related Variables
-    private final ArrayList<String> allTokenAddressesToMonitor = new ArrayList<>();
     private final ArrayList<String> allExchangesToMonitor = new ArrayList<>();
     private final String arbitrageContractAddress;
     private final ArrayList<TheGraphQueryMaker> allQueryMakers = new ArrayList<>();
@@ -57,6 +53,7 @@ public class ArbitrageSystem implements Runnable {
         this.arbitrageContractAddress = arbitrageContractAddress;
         this.waitTimeInMillis = waitTimeInMillis;
         this.thresholdPriceDifferencePercentage = thresholdPriceDifferencePercentage;
+        this.allExchangesToMonitor.addAll(Arrays.asList(dexTheGraphHostUrls));
 
         int length = dexTheGraphHostUrls.length;
         for (int i = 0; i < length; i++) {
@@ -98,6 +95,71 @@ public class ArbitrageSystem implements Runnable {
                    }
                 }""", stringBuilder)
         );
+    }
+
+    public ArrayList<String> getPairDetails(String token0, String token1) {
+        assert !(token0.equalsIgnoreCase(token1));
+        token0 = token0.toLowerCase();
+        token1 = token1.toLowerCase();
+
+        // This process is same that is adopted by uniswap when creating a pair....
+        if (token0.compareTo(token1) > 0) {
+            String temp = token0;
+            token0 = token1;
+            token1 = temp;
+        }
+
+        ArrayList<String> retVal = new ArrayList<>();
+        /*Index: -
+         * 0 => Token0 Symbol
+         * 1 => Token1 Symbol
+         * 2...N => PairIds on Different Dex
+         * */
+
+        TheGraphQueryMaker theGraphQueryMaker = new TheGraphQueryMaker(allExchangesToMonitor.get(0), MainClass.logPrintStream);
+        theGraphQueryMaker.setGraphQLQuery(String.format("""
+                {
+                    pairs(where: {token0: "%s", token1: "%s"}) {
+                        id
+                        token0 {
+                            symbol
+                        }
+                        token1 {
+                            symbol
+                        }
+                    }
+                }""", token0, token1));
+
+        JSONObject jsonObject = theGraphQueryMaker.sendQuery();
+        assert jsonObject != null;
+        JSONArray jsonArray = jsonObject.getJSONArray("pairs");
+        assert jsonArray.length() != 0;
+        jsonObject = jsonArray.getJSONObject(0);
+        retVal.add(token0.toLowerCase());
+        retVal.add(token1.toLowerCase());
+        retVal.add(jsonObject.getJSONObject("token0").getString("symbol"));
+        retVal.add(jsonObject.getJSONObject("token1").getString("symbol"));
+
+        for (String host : allExchangesToMonitor) {
+            theGraphQueryMaker = new TheGraphQueryMaker(host, MainClass.logPrintStream);
+            theGraphQueryMaker.setGraphQLQuery(String.format("""
+                    {
+                        pairs(where: {token0: "%s", token1: "%s"}) {
+                            id
+                        }
+                    }""", token0, token1));
+
+            jsonObject = theGraphQueryMaker.sendQuery();
+            assert jsonObject != null;
+            jsonArray = jsonObject.getJSONArray("pairs");
+            if (jsonArray.length() == 1) {
+                retVal.add(jsonArray.getJSONObject(0).getString("id"));
+            } else {
+                retVal.add("");
+            }
+        }
+
+        return retVal;
     }
 
     public void shutdownSystem() {
@@ -226,10 +288,15 @@ public class ArbitrageSystem implements Runnable {
         Collections.sort(allAnalysedPairData);
     }
 
+    public Set<String> getAllUniSwapPairIds() {
+        return allNetworkAllPairData.get(allQueryMakers.get(0)).keySet();
+    }
+
     @Override
     public void run() {
         MainClass.logPrintStream.println("Arbitrage System Running Now...");
         System.out.println("Arbitrage System Running Now...");
+        int count = 0;
 
         while (shouldRunArbitrageSystem) {
             try {
@@ -241,7 +308,12 @@ public class ArbitrageSystem implements Runnable {
 
             makeQueriesAndSetData();
             analyseAllPairsForArbitragePossibility(thresholdPriceDifferencePercentage);
-            printAllDeterminedData(System.out, MainClass.logPrintStream);
+            if (count == 9) {
+                printAllDeterminedData(MainClass.logPrintStream);
+                count = 0;
+            } else {
+                count++;
+            }
         }
 
         shutdownSystem();

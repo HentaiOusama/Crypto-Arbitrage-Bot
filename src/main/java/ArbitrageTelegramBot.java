@@ -7,6 +7,7 @@ import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import org.bson.Document;
 import org.bson.conversions.Bson;
+import org.jetbrains.annotations.Nullable;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.send.SendAnimation;
 import org.telegram.telegrambots.meta.api.methods.send.SendDocument;
@@ -14,8 +15,8 @@ import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.api.objects.Update;
 
-import java.io.File;
-import java.util.List;
+import java.io.*;
+import java.util.*;
 
 /*
  * Requirements: -
@@ -29,6 +30,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
     private final String botToken = System.getenv("ArbitrageBotToken");
     private boolean shouldRunBot;
     private ArbitrageSystem arbitrageSystem;
+    private final ArrayList<String> tempList = new ArrayList<>();
 
     // MongoDB Related Stuff
     private ClientSession clientSession;
@@ -39,6 +41,14 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
     private String[][][] allPairIdsAndTokenDetails; // url -> [ pairId -> {paidID, token0Id, token1Id, token0Symbol, token1Symbol} ]
 
     ArbitrageTelegramBot() {
+
+        Runtime.getRuntime().addShutdownHook(new Thread() {
+            @Override
+            public void run() {
+                super.run();
+                // Not yet Complete
+            }
+        });
 
         initializeMongoSetup();
 
@@ -116,8 +126,8 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
             assert foundDoc != null;
             shouldRunBot = true;
             document = new Document("shouldRunBot", true);
-            Bson updateAddyDocOperation = new Document("$set", document);
-            allPairAndTrackersDataCollection.updateOne(foundDoc, updateAddyDocOperation);
+            Bson updateOperation = new Document("$set", document);
+            allPairAndTrackersDataCollection.updateOne(foundDoc, updateOperation);
         }
 
         ArbitrageSystem arbitrageSystem = new ArbitrageSystem(this, "", 10000,
@@ -215,15 +225,148 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     stopArbitrageSystem();
                     sendMessage(chatId, "Operation Successful...");
                 }
+            } else if (text.toLowerCase().startsWith("addNewPair".toLowerCase())) {
+                if (!shouldRunBot) {
+                    sendMessage(chatId, "This command can only be used when the bot is running...");
+                } else {
+                    addNewPair(chatId, text);
+                }
+            } else if (text.equalsIgnoreCase("getAllPairDetails")) {
+                if (!shouldRunBot) {
+                    sendMessage(chatId, "This command can only be used when the bot is running...");
+                } else {
+                    if (!arbitrageSystem.printAllDeterminedData(chatId)) {
+                        sendMessage(chatId, "Error while generating data...");
+                    }
+                }
+            } else if (text.equalsIgnoreCase("getLogs")) {
+                sendLogs(chatId);
+            } else if (text.equalsIgnoreCase("clearLogs")) {
+                if (MainClass.logPrintStream != null) {
+                    MainClass.logPrintStream.flush();
+                }
+                try {
+                    MainClass.fileOutputStream = new FileOutputStream("OutputLogs.txt");
+                } catch (FileNotFoundException e) {
+                    e.printStackTrace();
+                }
+                MainClass.logPrintStream = new PrintStream(MainClass.fileOutputStream) {
+
+                    @Override
+                    public void println(@Nullable String x) {
+                        super.println("----------------------------- (Open)");
+                        super.println(x);
+                        super.println("----------------------------- (Close)\n\n");
+                    }
+
+                    @Override
+                    public void close() {
+                        try {
+                            MainClass.fileOutputStream.close();
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                        super.close();
+                    }
+                };
             } else if (text.equalsIgnoreCase("Commands")) {
                 sendMessage(chatId, """
                         runBot
                         stopBot
+                        addNewPair token0Addy token1Addy
+                        getAllPairDetails
+                        getLogs
+                        clearLogs
                         Commands
                         (amount has to be bigInteger including 18 decimal eth precision)""");
             } else {
                 sendMessage(chatId, "Such command does not exists. BaaaaaaaaaKa");
             }
+        }
+    }
+
+    private void addNewPair(String chatId, String text) {
+        String[] params = text.trim().split(" ");
+        if (params.length == 3) {
+            try {
+                Set<String> oldPairs = arbitrageSystem.getAllUniSwapPairIds();
+                ArrayList<String> result = arbitrageSystem.getPairDetails(params[1], params[2]);
+                String token0Id = result.remove(0);
+                String token1Id = result.remove(0);
+                String token0Symbol = result.remove(0).toUpperCase();
+                String token1Symbol = result.remove(0).toUpperCase();
+                String msg = "Token0Id: " + token0Id + ", Token0Symbol: " + token0Symbol +
+                        ", Token1Id: " + token1Id + ", Token1Symbol: " + token1Symbol +
+                        "\n\nAll PairIds:-\n" + result;
+
+                String firstId = result.get(0);
+                if (oldPairs.contains(firstId) || tempList.contains(firstId)) {
+                    sendMessage(chatId, "This Pair Already Exist in the Monitoring List...");
+                    return;
+                }
+
+                for (String host : allTrackerUrls) {
+                    Document document = new Document("trackerId", host);
+                    Document foundDoc = allPairAndTrackersDataCollection.find(document).first();
+
+                    assert foundDoc != null;
+                    if (foundDoc.get("allPairIds") instanceof List<?>) {
+                        List<String> allPairIds = new ArrayList<>();
+                        List<?> receivedPairIds = (List<?>) foundDoc.get("allPairIds");
+                        for (Object item : receivedPairIds) {
+                            if (item instanceof String) {
+                                allPairIds.add((String) item);
+                            }
+                        }
+
+                        String newPairId = result.remove(0);
+                        if (!newPairId.equalsIgnoreCase("")) {
+                            allPairIds.add(newPairId);
+                            Collections.sort(allPairIds);
+
+                            document = new Document("allPairIds", allPairIds);
+                            List<String> newData = new ArrayList<>();
+                            newData.add(token0Id);
+                            newData.add(token1Id);
+                            newData.add(token0Symbol);
+                            newData.add(token1Symbol);
+                            document.append(newPairId, newData);
+
+                            Bson updateOperation = new Document("$set", document);
+                            allPairAndTrackersDataCollection.updateOne(foundDoc, updateOperation);
+                            tempList.add(newPairId);
+                        }
+                    }
+                }
+
+                sendMessage(chatId, "Operation Successful. Following data was stored in the database:- \n\n" +
+                        msg);
+
+            } catch (Exception e) {
+                sendMessage(chatId, """
+                        Invalid Token Ids. Make sure that: -
+                        1) Both Token Ids are different
+                        2) Both Token Ids are valid (I.e. they Exist)
+                        3) Both have a pair on UniSwap""");
+            }
+        } else {
+            sendMessage(chatId, "Wrong Usage of Command. Correct format: -\n" +
+                    "addNewPair token0Address token1Address");
+        }
+    }
+
+    private void sendLogs(String chatId) {
+        SendDocument sendDocument = new SendDocument();
+        sendDocument.setChatId(chatId);
+        MainClass.logPrintStream.flush();
+        sendDocument.setDocument(new InputFile().setMedia(new File("OutputLogs.txt")));
+        sendDocument.setCaption("Latest Logs");
+        try {
+            execute(sendDocument);
+        } catch (Exception e) {
+            sendMessage(chatId, "Error in sending Logs\n" + Arrays.toString(e.getStackTrace()));
+            e.printStackTrace(MainClass.logPrintStream);
+            e.printStackTrace();
         }
     }
 }
