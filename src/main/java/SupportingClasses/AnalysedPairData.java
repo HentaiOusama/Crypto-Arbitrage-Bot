@@ -8,13 +8,17 @@ import java.math.RoundingMode;
 public class AnalysedPairData implements Comparable<AnalysedPairData> {
 
     public final String pairKeyForMapper;
+    private final String token0, token1;
 
     public BigDecimal minPrice, maxPrice, priceDifference;
     public int minIndex, maxIndex;
     public final float priceDifferencePercentage;
 
-    public AnalysedPairData(String pairKeyForMapper, BigDecimal minPrice, BigDecimal maxPrice, int minIndex, int maxIndex) {
+    public AnalysedPairData(String pairKeyForMapper, String token0, String token1, BigDecimal minPrice,
+                            BigDecimal maxPrice, int minIndex, int maxIndex) {
         this.pairKeyForMapper = pairKeyForMapper;
+        this.token0 = token0;
+        this.token1 = token1;
         this.minPrice = minPrice;
         this.maxPrice = maxPrice;
         this.minIndex = minIndex;
@@ -30,7 +34,6 @@ public class AnalysedPairData implements Comparable<AnalysedPairData> {
 
     @Override
     public String toString() {
-        return "(" + pairKeyForMapper.replace(',', '+') + ")," + minPrice + "," + maxPrice + "," +
-                priceDifference + "," + priceDifferencePercentage;
+        return "" + token0 + "," + token1 + "," + minPrice + "," + maxPrice + "," + priceDifference + "," + priceDifferencePercentage;
     }
 }

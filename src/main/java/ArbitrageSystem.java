@@ -30,7 +30,7 @@ public class ArbitrageSystem implements Runnable {
     // Manager Variables
     private volatile boolean shouldRunArbitrageSystem = true;
     private final int waitTimeInMillis;
-    private final float thresholdPriceDifferencePercentage;
+    public float thresholdPriceDifferencePercentage;
     private final ArbitrageTelegramBot arbitrageTelegramBot;
 
     // Web3 Related Variables
@@ -40,7 +40,7 @@ public class ArbitrageSystem implements Runnable {
     private final ArrayList<String> allExchangesToMonitor = new ArrayList<>();
     private final String arbitrageContractAddress;
     private final ArrayList<TheGraphQueryMaker> allQueryMakers = new ArrayList<>();
-    // Mapping SupportingClasses.TheGraphQueryMaker to a mapping of pairId mapped to SupportingClasses.PairData 👇
+    // Mapping TheGraphQueryMaker to a mapping of pairId mapped to PairData 👇
     private final HashMap<TheGraphQueryMaker, HashMap<String, PairData>> allNetworkAllPairData = new HashMap<>();
     private final TokenIdToPairIdMapper tokenIdToPairIdMapper = new TokenIdToPairIdMapper();
     private final ArrayList<AnalysedPairData> allAnalysedPairData = new ArrayList<>();
@@ -49,7 +49,6 @@ public class ArbitrageSystem implements Runnable {
     ArbitrageSystem(ArbitrageTelegramBot arbitrageTelegramBot, String arbitrageContractAddress, int waitTimeInMillis,
                     float thresholdPriceDifferencePercentage, String[] dexTheGraphHostUrls, String[][][] allPairIdsOnAllNetworks) {
         this.arbitrageTelegramBot = arbitrageTelegramBot;
-        assert dexTheGraphHostUrls.length == allPairIdsOnAllNetworks.length;
         this.arbitrageContractAddress = arbitrageContractAddress;
         this.waitTimeInMillis = waitTimeInMillis;
         this.thresholdPriceDifferencePercentage = thresholdPriceDifferencePercentage;
@@ -74,7 +73,9 @@ public class ArbitrageSystem implements Runnable {
         }
         StringBuilder stringBuilder = new StringBuilder("[");
         for (int j = 0; j < len; j++) {
-            assert currentNetworkPairIds[j] != null;
+            if (currentNetworkPairIds[j][0] == null) {
+                continue;
+            }
             tokenIdToPairIdMapper.addPairTracker(currentNetworkPairIds[j][1], currentNetworkPairIds[j][2], currentNetworkPairIds[j][0]);
             hashMap.put(currentNetworkPairIds[j][0], new PairData(currentNetworkPairIds[j][0], currentNetworkPairIds[j][1],
                     currentNetworkPairIds[j][2], currentNetworkPairIds[j][3], currentNetworkPairIds[j][4]
@@ -97,8 +98,10 @@ public class ArbitrageSystem implements Runnable {
         );
     }
 
-    public ArrayList<String> getPairDetails(String token0, String token1) {
-        assert !(token0.equalsIgnoreCase(token1));
+    public ArrayList<String> getPairDetails(String token0, String token1) throws Exception {
+        if (token0.equalsIgnoreCase(token1)) {
+            throw new Exception("Both Token Ids cannot be same....");
+        }
         token0 = token0.toLowerCase();
         token1 = token1.toLowerCase();
 
@@ -131,9 +134,13 @@ public class ArbitrageSystem implements Runnable {
                 }""", token0, token1));
 
         JSONObject jsonObject = theGraphQueryMaker.sendQuery();
-        assert jsonObject != null;
+        if (jsonObject == null) {
+            throw new Exception("Error while sending the query...");
+        }
         JSONArray jsonArray = jsonObject.getJSONArray("pairs");
-        assert jsonArray.length() != 0;
+        if (jsonArray.length() == 0) {
+            throw new Exception("Invalid Token Ids...");
+        }
         jsonObject = jsonArray.getJSONObject(0);
         retVal.add(token0.toLowerCase());
         retVal.add(token1.toLowerCase());
@@ -150,7 +157,9 @@ public class ArbitrageSystem implements Runnable {
                     }""", token0, token1));
 
             jsonObject = theGraphQueryMaker.sendQuery();
-            assert jsonObject != null;
+            if (jsonObject == null) {
+                throw new Exception("Error while sending the query...");
+            }
             jsonArray = jsonObject.getJSONArray("pairs");
             if (jsonArray.length() == 1) {
                 retVal.add(jsonArray.getJSONObject(0).getString("id"));
@@ -220,7 +229,7 @@ public class ArbitrageSystem implements Runnable {
                     |------ Trimmed Data After Analysis -------|
                     |------------------------------------------|
                     """);
-            printStream.println("PairKeyForMapper,Min Price,Max Price,Price Difference,Price Difference (%)\n");
+            printStream.println("Token 0 Symbol,Token 1 Symbol,Min Price,Max Price,Price Difference,Price Difference (%)\n");
 
             for (AnalysedPairData analysedPairData : allAnalysedPairData) {
                 printStream.println(analysedPairData);
@@ -291,6 +300,9 @@ public class ArbitrageSystem implements Runnable {
                 continue;
             }
 
+            String token0 = allNetworkAllPairData.get(allQueryMakers.get(0)).get(allPairIdsForSpecificPair.get(0)).token0Symbol,
+                    token1 = allNetworkAllPairData.get(allQueryMakers.get(0)).get(allPairIdsForSpecificPair.get(0)).token1Symbol;
+
             BigDecimal minPrice = allNetworkAllPairData.get(allQueryMakers.get(0)).get(allPairIdsForSpecificPair.get(0)).getToken0StaticPrice(),
                     maxPrice = allNetworkAllPairData.get(allQueryMakers.get(0)).get(allPairIdsForSpecificPair.get(0)).getToken0StaticPrice(),
                     currentPrice;
@@ -307,7 +319,7 @@ public class ArbitrageSystem implements Runnable {
                 }
             }
 
-            AnalysedPairData analysedPairData = new AnalysedPairData(key, minPrice, maxPrice, minIndex, maxIndex);
+            AnalysedPairData analysedPairData = new AnalysedPairData(key, token0, token1, minPrice, maxPrice, minIndex, maxIndex);
             if (analysedPairData.priceDifferencePercentage >= thresholdPriceDifferencePercentage) {
                 allAnalysedPairData.add(analysedPairData);
             }
