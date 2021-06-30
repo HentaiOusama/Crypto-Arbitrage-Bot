@@ -195,7 +195,7 @@ public class ArbitrageSystem implements Runnable {
 
     protected void printAllDeterminedData(PrintStream... printStreams) {
         for (PrintStream printStream : printStreams) {
-            printStream.println("<------------------------------------------ Printing All Determined Data  ------------------------------------------>\n\n\n");
+            printStream.println("<-----     Printing All Determined Data     ----->\n\n\n");
             printStream.println("Pair Id,Token 0 Symbol,Token 1 Symbol,Token 0 Volume,Token 1 Volume,Token 0 StaticPrice,Token 1 Static" +
                     "Price,Last Update Time,Network Name\n");
         }
@@ -223,7 +223,7 @@ public class ArbitrageSystem implements Runnable {
             printStream.println("""
                                         
                                         
-                    <------------------------------------------ Trimmed Data After Analysis ------------------------------------------>
+                    <-----     Trimmed Data After Analysis     ----->
                     """);
             printStream.println(",Token 0 Symbol,Token 1 Symbol,Min Price,Max Price,Price Difference,Price Difference (%)\n");
 
@@ -233,7 +233,7 @@ public class ArbitrageSystem implements Runnable {
 
             printStream.println("\nThreshold Percentage Difference Used : " + thresholdPriceDifferencePercentage + " %");
             printStream.println("\n\n\n");
-            printStream.println("<------------------------------------------ Data Printing Complete  ------------------------------------------>");
+            printStream.println("<-----     Data Printing Complete     ----->");
         }
     }
 

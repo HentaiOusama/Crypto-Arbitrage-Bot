@@ -539,7 +539,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 sendMessage(chatId, "Such command does not exists. BaaaaaaaaaKa");
             }
 
-            sendMessage(chatId, "shouldRunBot : " + shouldRunBot + "\nThreshold Percentage : " + thresholdPercentage + "%");
+            sendMessage(chatId, "Is Bot Running : " + shouldRunBot + "\nThreshold Percentage : " + thresholdPercentage + "%");
         }
     }
 }
