@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.math.BigDecimal;
 import java.util.*;
+import java.util.concurrent.Semaphore;
 
 /*
  * Requires Environment Variable :-
@@ -29,9 +30,10 @@ public class ArbitrageSystem implements Runnable {
 
     // Manager Variables
     private volatile boolean shouldRunArbitrageSystem = true;
-    private final int waitTimeInMillis;
+    public int waitTimeInMillis;
     public BigDecimal thresholdPriceDifferencePercentage;
     private final ArbitrageTelegramBot arbitrageTelegramBot;
+    private final Semaphore mutex = new Semaphore(1);
 
     // Web3 Related Variables
     private Web3j web3j;
@@ -165,6 +167,38 @@ public class ArbitrageSystem implements Runnable {
                 retVal.add(jsonArray.getJSONObject(0).getString("id"));
             } else {
                 retVal.add("");
+            }
+        }
+
+        return retVal;
+    }
+
+    public ArrayList<String> removePair(String token0, String token1) {
+        String key = tokenIdToPairIdMapper.getKey(token0, token1);
+        ArrayList<String> retVal = null;
+
+        if (key != null) {
+            try {
+                mutex.acquire();
+            } catch (InterruptedException e) {
+                e.printStackTrace(MainClass.logPrintStream);
+                return null;
+            }
+
+            try {
+                retVal = tokenIdToPairIdMapper.get(key);
+
+                int length = retVal.size();
+                for (int i = 0; i < length; i++) {
+                    String currentPairId = retVal.get(i);
+                    if (!currentPairId.equalsIgnoreCase("")) {
+                        allNetworkAllPairData.get(allQueryMakers.get(i)).remove(currentPairId);
+                    }
+                }
+
+                tokenIdToPairIdMapper.remove(key);
+            } finally {
+                mutex.release();
             }
         }
 
@@ -340,13 +374,23 @@ public class ArbitrageSystem implements Runnable {
             }
             //--------------------------------------------------//
 
-            makeQueriesAndSetData();
-            analyseAllPairsForArbitragePossibility();
-            if (count == 0) {
-                printAllDeterminedData(MainClass.logPrintStream);
-                count = 29;
-            } else {
-                count--;
+            try {
+                mutex.acquire();
+            } catch (InterruptedException e) {
+                e.printStackTrace(MainClass.logPrintStream);
+                continue;
+            }
+            try {
+                makeQueriesAndSetData();
+                analyseAllPairsForArbitragePossibility();
+                if (count == 0) {
+                    printAllDeterminedData(MainClass.logPrintStream);
+                    count = 29;
+                } else {
+                    count--;
+                }
+            } finally {
+                mutex.release();
             }
         }
 

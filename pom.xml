@@ -92,7 +92,7 @@
                     <programs>
                         <program>
                             <mainClass>MainClass</mainClass>
-                            <name>worker</name>
+                            <id>worker</id>
                         </program>
                     </programs>
                 </configuration>

@@ -32,6 +32,20 @@ public class TokenIdToPairIdMapper extends HashMap<String, ArrayList<String>> {
         }
     }
 
+    public String getKey(String token0, String token1) {
+        token0 = token0.toLowerCase();
+        token1 = token1.toLowerCase();
+
+        int containVal = containsKey(token0, token1);
+        if (containVal == 0) {
+            return token0 + ", " + token1;
+        } else if (containVal == 1) {
+            return token1 + ", " + token0;
+        } else {
+            return null;
+        }
+    }
+
     public ArrayList<String> getAllTrackers(String token0, String token1) {
 
         token0 = token0.toLowerCase();
@@ -70,5 +84,6 @@ public class TokenIdToPairIdMapper extends HashMap<String, ArrayList<String>> {
         } else {
             getAllTrackers(token0, token1).add(pairId);
         }
+
     }
 }

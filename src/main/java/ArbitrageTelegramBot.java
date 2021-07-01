@@ -40,7 +40,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
     private final ArrayList<String> allAdmins = new ArrayList<>();
     private final ArrayList<String> tempList = new ArrayList<>();
     private String thresholdPercentage;
-    private int pollingInterval = 15000; // Milliseconds
+    private int pollingInterval; // Milliseconds
 
     // MongoDB Related Stuff
     private ClientSession clientSession;
@@ -74,6 +74,8 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         Document document = new Document("identifier", "root");
         Document foundDoc = allPairAndTrackersDataCollection.find(document).first();
         assert foundDoc != null;
+        thresholdPercentage = (String) foundDoc.get("thresholdPercentage");
+        pollingInterval = (int) foundDoc.get("pollingInterval");
         List<?> list = (List<?>) foundDoc.get("admins");
         shouldRunBot = (boolean) foundDoc.get("shouldRunBot");
         for (Object item : list) {
@@ -168,6 +170,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         Thread t = new Thread(arbitrageSystem);
         t.start();
         this.arbitrageSystem = arbitrageSystem;
+        tempList.clear();
     }
 
     public void stopArbitrageSystem() {
@@ -285,6 +288,10 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                             Bson updateOperation = new Document("$set", document);
                             allPairAndTrackersDataCollection.updateOne(foundDoc, updateOperation);
                             tempList.add(newPairId);
+                        } else if (host.equals(allTrackerUrls[0])) {
+                            sendMessage(chatId, "This pair was not found on Uniswap. Any pair that you want to add needs to exist on " +
+                                    "at least Uniswap. Other swaps are optional.");
+                            return;
                         }
                     }
                 }
@@ -303,6 +310,62 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         } else {
             sendMessage(chatId, "Wrong Usage of Command. Correct format: -\n" +
                     "addNewPair token0Address token1Address");
+        }
+    }
+
+    private void removeOldPair(String chatId, String text) {
+        String[] params = text.trim().split(" ");
+        if (params.length == 3) {
+            String token0 = params[1].toLowerCase();
+            String token1 = params[2].toLowerCase();
+
+            if (token0.compareTo(token1) > 0) {
+                String temp = token0;
+                token0 = token1;
+                token1 = temp;
+            }
+
+            ArrayList<String> pairIds = arbitrageSystem.removePair(token0, token1);
+            if (pairIds != null) {
+                int length = pairIds.size();
+                for (int i = 0; i < length; i++) {
+                    String id = pairIds.get(i);
+                    if (!id.equalsIgnoreCase("")) {
+                        String host = allTrackerUrls[i];
+                        Document document = new Document("trackerId", host);
+                        Document foundDoc = allPairAndTrackersDataCollection.find(document).first();
+                        Document newDocument = allPairAndTrackersDataCollection.find(document).first();
+                        assert newDocument != null;
+                        assert foundDoc != null;
+                        List<?> list = (List<?>) foundDoc.get("allPairIds");
+                        List<String> builtList = new ArrayList<>();
+                        for (Object item : list) {
+                            if (item instanceof String) {
+                                String foundId = (String) item;
+                                if (!foundId.equalsIgnoreCase(id)) {
+                                    builtList.add(foundId);
+                                }
+                            }
+                        }
+
+                        newDocument.remove(id);
+                        Bson updateOperation = new Document("$set", newDocument);
+                        allPairAndTrackersDataCollection.updateOne(foundDoc, updateOperation);
+
+                        foundDoc = allPairAndTrackersDataCollection.find(document).first();
+                        assert foundDoc != null;
+                        document = new Document("allPairIds", builtList);
+                        updateOperation = new Document("$set", document);
+                        allPairAndTrackersDataCollection.updateOne(foundDoc, updateOperation);
+
+                    }
+                }
+            } else {
+                sendMessage(chatId, "No pair exist in with the given token addresses in the current monitoring list...");
+            }
+        } else {
+            sendMessage(chatId, "Invalid Format. Correct Format: -\n" +
+                    "removeOldPair token0Addy token1Addy");
         }
     }
 
@@ -422,6 +485,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         return botToken;
     }
 
+    @SuppressWarnings("SpellCheckingInspection")
     @Override
     public void onUpdateReceived(Update update) {
 
@@ -455,10 +519,22 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     stopArbitrageSystem();
                     sendMessage(chatId, "Operation Successful...");
                 }
-            } else if (text.toLowerCase().startsWith("setThresholdPercentage".toLowerCase())) {
+            } else if (text.equalsIgnoreCase("restartBot")) {
+                if (shouldRunBot) {
+                    sendMessage(chatId, "Turning Off the bot now....");
+                    stopArbitrageSystem();
+                }
+                try {
+                    startArbitrageSystem();
+                    sendMessage(chatId, "Bot turned on.\n\nOperation Successful");
+                } catch (Exception e) {
+                    sendMessage(chatId, "There was an error while turning on the bot...");
+                }
+            } else if (text.toLowerCase().startsWith("setthresholdpercentage")) {
                 String[] params = text.trim().split(" ");
                 if (params.length == 2) {
                     try {
+                        BigDecimal decimalValue = new BigDecimal(params[1]);
                         thresholdPercentage = params[1];
                         Document document = new Document("identifier", "root");
                         Document foundDoc = allPairAndTrackersDataCollection.find(document).first();
@@ -468,23 +544,56 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                         allPairAndTrackersDataCollection.updateOne(foundDoc, updateOperation);
 
                         if (shouldRunBot) {
-                            arbitrageSystem.thresholdPriceDifferencePercentage = new BigDecimal(thresholdPercentage);
+                            arbitrageSystem.thresholdPriceDifferencePercentage = decimalValue;
                         }
 
                     } catch (NumberFormatException e) {
-                        sendMessage(chatId, "Invalid Format... The decimalValue has to be a integer or a decimal between 0 and 100");
+                        sendMessage(chatId, "Invalid Format... The decimalValue has to be an integer or a decimal between 0 and 100");
                     }
                 } else {
                     sendMessage(chatId, "Wrong Usage of Command. Correct Format : \n" +
                             "setThresholdPercentage decimalValue");
                 }
-            } else if (text.toLowerCase().startsWith("addNewPair".toLowerCase())) {
-                if (!shouldRunBot) {
-                    sendMessage(chatId, "This command can only be used when the bot is running...");
+            } else if (text.toLowerCase().startsWith("setpollinginterval")) {
+                String[] params = text.trim().split(" ");
+                if (params.length == 2) {
+                    Document document = new Document("identifier", "root");
+                    Document foundDoc = allPairAndTrackersDataCollection.find(document).first();
+                    assert foundDoc != null;
+
+                    try {
+                        int interval = Integer.parseInt(params[1]);
+                        if (interval < 7500) {
+                            sendMessage(chatId, "timeInMillis has to be larger than 7500");
+                            return;
+                        }
+                        document = new Document("pollingInterval", interval);
+                        Bson updateOperation = new Document("$set", document);
+                        allPairAndTrackersDataCollection.updateOne(foundDoc, updateOperation);
+                        pollingInterval = interval;
+                        if (shouldRunBot) {
+                            arbitrageSystem.waitTimeInMillis = interval;
+                        }
+                    } catch (NumberFormatException e) {
+                        sendMessage(chatId, "Invalid time. timeInMillis has to be an Integer.");
+                    }
                 } else {
-                    addNewPair(chatId, text);
+                    sendMessage(chatId, "Invalid Format. Correct Format: -\n" +
+                            "setPollingInterval timeInMillis");
                 }
-            } else if (text.toLowerCase().startsWith("addNewTrackerUrl".toLowerCase())) {
+            } else if (text.toLowerCase().startsWith("addnewpair")) {
+                if (shouldRunBot) {
+                    addNewPair(chatId, text);
+                } else {
+                    sendMessage(chatId, "This command can only be used when the bot is running...");
+                }
+            } else if (text.toLowerCase().startsWith("removeoldpair")) {
+                if (shouldRunBot) {
+                    removeOldPair(chatId, text);
+                } else {
+                    sendMessage(chatId, "This command can only be used when the bot is running...");
+                }
+            } else if (text.toLowerCase().startsWith("addnewtrackerurl")) {
                 addNewTracker(chatId, text);
             } else if (text.equalsIgnoreCase("getAllPairDetails")) {
                 if (!shouldRunBot) {
@@ -528,15 +637,20 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 sendMessage(chatId, """
                         runBot
                         stopBot
+                        restartBot
                         setThresholdPercentage decimalValue
                         addNewPair token0Addy token1Addy
+                        removeOldPair token0Addy token1Addy
                         addNewTrackerUrl theGraphUrl
                         getAllPairDetails
                         getLogs
                         clearLogs
-                        Commands""");
+                        Commands
+                                                
+                                                
+                        (For any command, 1st word is the actual command name and it may be followed by 0 or more parameters that must be replaced by the actual values.)""");
             } else {
-                sendMessage(chatId, "Such command does not exists. BaaaaaaaaaKa");
+                sendMessage(chatId, "Such command does not exists. (ノಠ益ಠ)ノ彡┻━┻");
             }
 
             sendMessage(chatId, "Is Bot Running : " + shouldRunBot + "\nThreshold Percentage : " + thresholdPercentage + "%");
