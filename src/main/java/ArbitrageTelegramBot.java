@@ -2,7 +2,6 @@ import SupportingClasses.TheGraphQueryMaker;
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.WriteConcern;
-import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
@@ -42,8 +41,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
     private String thresholdPercentage;
     private int pollingInterval; // Milliseconds
 
-    // MongoDB Related Stuff
-    private ClientSession clientSession;
+    public MongoClient mongoClient;
     private MongoCollection<Document> allPairAndTrackersDataCollection;
 
     // Tracker and Pair Data
@@ -58,6 +56,9 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 super.run();
                 System.out.println("Shutdown Handler Called...");
                 try {
+                    if (mongoClient != null) {
+                        mongoClient.close();
+                    }
                     MainClass.logPrintStream.println("Shutdown Handler Called...");
                     MainClass.logPrintStream.close();
                     MainClass.fileOutputStream.close();
@@ -97,8 +98,9 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         );
         MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
                 .applyConnectionString(connectionString).retryWrites(true).writeConcern(WriteConcern.MAJORITY).build();
-        MongoClient mongoClient = MongoClients.create(mongoClientSettings);
-        clientSession = mongoClient.startSession();
+        mongoClient = MongoClients.create(mongoClientSettings);
+        // MongoDB Related Stuff
+        mongoClient.startSession();
         allPairAndTrackersDataCollection = mongoClient.getDatabase("Arbitrage-Bot-Database").getCollection("All-Pairs-And-Trackers-Data");
     }
 

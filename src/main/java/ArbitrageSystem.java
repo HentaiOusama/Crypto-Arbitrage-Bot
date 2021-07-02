@@ -260,9 +260,13 @@ public class ArbitrageSystem {
 
     protected void printAllDeterminedData(PrintStream... printStreams) {
         for (PrintStream printStream : printStreams) {
-            printStream.println("<-----     Printing All Determined Data     ----->\n\n\n");
-            printStream.println("Pair Id,Token 0 Symbol,Token 1 Symbol,Token 0 Volume,Token 1 Volume,Token 0 StaticPrice,Token 1 Static" +
-                    "Price,Last Update Time,Exchange No.,Network Name\n");
+            printStream.println("""
+                    <-----     Printing All Determined Data     ----->
+                                        
+                                        
+                                        
+                    Pair Id,Token 0 Symbol,Token 1 Symbol,Token 0 Volume,Token 1 Volume,Token 0 StaticPrice,Token 1 StaticPrice,Last Update Time,Exchange No.,Network Name
+                    """);
         }
 
         int hostCounter = 0;
@@ -293,15 +297,25 @@ public class ArbitrageSystem {
                                         
                                         
                     <-----     Trimmed Data After Analysis     ----->
+                                        
+                    ,Buy Token Symbol,Sell Token Symbol,Exchange A,Exchange B,Max Possible Profit,Max Sell Amount
                     """);
-            printStream.println(",Buy Token Symbol,Sell Token Symbol,Exchange A,Exchange B,Max Possible Profit,Max Sell Amount\n");
 
             for (AnalizedPairData analizedPairData : allAnalizedPairData) {
                 printStream.println(analizedPairData);
             }
 
-            printStream.println("\n\n\n");
-            printStream.println("<-----     Data Printing Complete     ----->");
+            printStream.println("""
+                                        
+                                        
+                    Notes: -
+                    Sell Token means the token we sell on Exchange A and buy on Exchange B.
+                    Buy Token means the token we buy on Exchange A and sell on Exchange B.
+                    Max. profit and sell amount are in terms of sell token.
+                                        
+                                        
+                                        
+                    <-----     Data Printing Complete     ----->""");
         }
     }
 
@@ -316,9 +330,9 @@ public class ArbitrageSystem {
             FileOutputStream fileOutputStream = new FileOutputStream("GatheredData.csv");
             PrintStream printStream = new PrintStream(fileOutputStream);
             printAllDeterminedData(printStream);
-            arbitrageTelegramBot.sendFile(chatId, "GatheredData.csv");
             printStream.close();
             fileOutputStream.close();
+            arbitrageTelegramBot.sendFile(chatId, "GatheredData.csv");
             return true;
         } catch (IOException e) {
             e.printStackTrace(MainClass.logPrintStream);
