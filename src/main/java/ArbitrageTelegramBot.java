@@ -163,12 +163,11 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         }
 
         ArbitrageSystem arbitrageSystem = new ArbitrageSystem(this, "", pollingInterval,
-                thresholdPercentage, allTrackerUrls, allPairIdsAndTokenDetails);
+                allTrackerUrls, allPairIdsAndTokenDetails);
 
-        MainClass.logPrintStream.println("Call to Arbitrage Run Method");
-        System.out.println("Call to Arbitrage Run Method");
-        Thread t = new Thread(arbitrageSystem);
-        t.start();
+        MainClass.logPrintStream.println("Call to Arbitrage Start System...");
+        System.out.println("Call to Arbitrage Start System...");
+        arbitrageSystem.startSystem();
         this.arbitrageSystem = arbitrageSystem;
         tempList.clear();
     }
@@ -543,9 +542,10 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                         Bson updateOperation = new Document("$set", document);
                         allPairAndTrackersDataCollection.updateOne(foundDoc, updateOperation);
 
-                        if (shouldRunBot) {
-                            arbitrageSystem.thresholdPriceDifferencePercentage = decimalValue;
-                        }
+//                        Not yet Complete....
+//                        if (shouldRunBot) {
+//                            arbitrageSystem.thresholdProfitAmount = decimalValue;
+//                        }
 
                     } catch (NumberFormatException e) {
                         sendMessage(chatId, "Invalid Format... The decimalValue has to be an integer or a decimal between 0 and 100");

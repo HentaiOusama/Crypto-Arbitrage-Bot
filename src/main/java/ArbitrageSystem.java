@@ -1,4 +1,4 @@
-import SupportingClasses.AnalysedPairData;
+import SupportingClasses.AnalizedPairData;
 import SupportingClasses.PairData;
 import SupportingClasses.TheGraphQueryMaker;
 import SupportingClasses.TokenIdToPairIdMapper;
@@ -12,8 +12,10 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.math.BigDecimal;
+import java.math.MathContext;
+import java.math.RoundingMode;
 import java.util.*;
-import java.util.concurrent.Semaphore;
+import java.util.concurrent.*;
 
 /*
  * Requires Environment Variable :-
@@ -26,12 +28,11 @@ import java.util.concurrent.Semaphore;
  * 1 => SushiSwap
  * ------------------------------------------------------------------------------------------
  * */
-public class ArbitrageSystem implements Runnable {
+public class ArbitrageSystem {
 
     // Manager Variables
-    private volatile boolean shouldRunArbitrageSystem = true;
-    public int waitTimeInMillis;
-    public BigDecimal thresholdPriceDifferencePercentage;
+    private final ScheduledExecutorService coreSystemExecutorService = Executors.newSingleThreadScheduledExecutor();
+    public int waitTimeInMillis, count = 29;
     private final ArbitrageTelegramBot arbitrageTelegramBot;
     private final Semaphore mutex = new Semaphore(1);
 
@@ -45,15 +46,14 @@ public class ArbitrageSystem implements Runnable {
     // Mapping TheGraphQueryMaker to a mapping of pairId mapped to PairData 👇
     private final HashMap<TheGraphQueryMaker, HashMap<String, PairData>> allNetworkAllPairData = new HashMap<>();
     private final TokenIdToPairIdMapper tokenIdToPairIdMapper = new TokenIdToPairIdMapper();
-    private final ArrayList<AnalysedPairData> allAnalysedPairData = new ArrayList<>();
+    private final ArrayList<AnalizedPairData> allAnalizedPairData = new ArrayList<>();
 
 
     ArbitrageSystem(ArbitrageTelegramBot arbitrageTelegramBot, String arbitrageContractAddress, int waitTimeInMillis,
-                    String thresholdPriceDifferencePercentage, String[] dexTheGraphHostUrls, String[][][] allPairIdsOnAllNetworks) {
+                    String[] dexTheGraphHostUrls, String[][][] allPairIdsOnAllNetworks) {
         this.arbitrageTelegramBot = arbitrageTelegramBot;
         this.arbitrageContractAddress = arbitrageContractAddress;
         this.waitTimeInMillis = waitTimeInMillis;
-        this.thresholdPriceDifferencePercentage = new BigDecimal(thresholdPriceDifferencePercentage);
         this.allExchangesToMonitor.addAll(Arrays.asList(dexTheGraphHostUrls));
 
         int length = dexTheGraphHostUrls.length;
@@ -63,11 +63,12 @@ public class ArbitrageSystem implements Runnable {
             HashMap<String, PairData> hashMap = new HashMap<>();
             allNetworkAllPairData.put(theGraphQueryMaker, hashMap);
 
-            buildGraphQLQuery(theGraphQueryMaker, hashMap, allPairIdsOnAllNetworks[i]);
+            buildGraphQLQuery(i, theGraphQueryMaker, hashMap, allPairIdsOnAllNetworks[i]);
         }
     }
 
-    protected void buildGraphQLQuery(TheGraphQueryMaker theGraphQueryMaker, HashMap<String, PairData> hashMap, String[][] currentNetworkPairIds) {
+    protected void buildGraphQLQuery(int index, TheGraphQueryMaker theGraphQueryMaker, HashMap<String, PairData> hashMap,
+                                     String[][] currentNetworkPairIds) {
         int len = currentNetworkPairIds.length;
         if (len == 0) {
             theGraphQueryMaker.isQueryMakerBad = true;
@@ -79,7 +80,7 @@ public class ArbitrageSystem implements Runnable {
                 continue;
             }
             tokenIdToPairIdMapper.addPairTracker(currentNetworkPairIds[j][1], currentNetworkPairIds[j][2], currentNetworkPairIds[j][0]);
-            hashMap.put(currentNetworkPairIds[j][0], new PairData(currentNetworkPairIds[j][0], currentNetworkPairIds[j][1],
+            hashMap.put(currentNetworkPairIds[j][0], new PairData(index, currentNetworkPairIds[j][0], currentNetworkPairIds[j][1],
                     currentNetworkPairIds[j][2], currentNetworkPairIds[j][3], currentNetworkPairIds[j][4]
             ));
             stringBuilder.append("\"").append(currentNetworkPairIds[j][0]).append("\"");
@@ -205,14 +206,14 @@ public class ArbitrageSystem implements Runnable {
         return retVal;
     }
 
-    public void shutdownSystem() {
+    public void shutdownWeb3j() {
         if (web3j != null) {
             web3j.shutdown();
         }
     }
 
     public void buildWeb3j() {
-        shutdownSystem();
+        shutdownWeb3j();
 
         web3j = Web3j.build(new HttpService(System.getenv("HttpsEndpoint")));
 
@@ -223,18 +224,50 @@ public class ArbitrageSystem implements Runnable {
         }
     }
 
+    public void startSystem() {
+        MainClass.logPrintStream.println("Arbitrage System Running Now...");
+        System.out.println("Arbitrage System Running Now...");
+
+        coreSystemExecutorService.scheduleWithFixedDelay(new CoreSystem(), 0, waitTimeInMillis, TimeUnit.MILLISECONDS);
+    }
+
     public void stopSystem() {
-        shouldRunArbitrageSystem = false;
+        try {
+            mutex.acquire();
+        } catch (InterruptedException e) {
+            e.printStackTrace(MainClass.logPrintStream);
+        }
+        try {
+            coreSystemExecutorService.shutdown();
+            try {
+                if (!coreSystemExecutorService.awaitTermination(10, TimeUnit.SECONDS) && !coreSystemExecutorService.isShutdown()) {
+                    coreSystemExecutorService.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                e.printStackTrace(MainClass.logPrintStream);
+                if (!coreSystemExecutorService.isShutdown()) {
+                    coreSystemExecutorService.shutdownNow();
+                }
+            }
+            shutdownWeb3j();
+        } finally {
+            mutex.release();
+        }
+
+        MainClass.logPrintStream.println("Arbitrage System Stopped Running...");
+        System.out.println("Arbitrage System Stopped Running...");
     }
 
     protected void printAllDeterminedData(PrintStream... printStreams) {
         for (PrintStream printStream : printStreams) {
             printStream.println("<-----     Printing All Determined Data     ----->\n\n\n");
             printStream.println("Pair Id,Token 0 Symbol,Token 1 Symbol,Token 0 Volume,Token 1 Volume,Token 0 StaticPrice,Token 1 Static" +
-                    "Price,Last Update Time,Network Name\n");
+                    "Price,Last Update Time,Exchange No.,Network Name\n");
         }
 
+        int hostCounter = 0;
         for (TheGraphQueryMaker theGraphQueryMaker : allQueryMakers) {
+            hostCounter++;
             HashMap<String, PairData> currentNetworkPair = allNetworkAllPairData.get(theGraphQueryMaker);
             Set<String> keys = currentNetworkPair.keySet();
 
@@ -242,6 +275,8 @@ public class ArbitrageSystem implements Runnable {
             for (String key : keys) {
                 allPairDataInCSVFormat
                         .append(currentNetworkPair.get(key))
+                        .append(",")
+                        .append(hostCounter)
                         .append(",")
                         .append(theGraphQueryMaker.getHostUrl())
                         .append("\n");
@@ -259,13 +294,12 @@ public class ArbitrageSystem implements Runnable {
                                         
                     <-----     Trimmed Data After Analysis     ----->
                     """);
-            printStream.println(",Token 0 Symbol,Token 1 Symbol,Min Price,Max Price,Price Difference,Price Difference (%)\n");
+            printStream.println(",Buy Token Symbol,Sell Token Symbol,Exchange A,Exchange B,Max Possible Profit,Max Sell Amount\n");
 
-            for (AnalysedPairData analysedPairData : allAnalysedPairData) {
-                printStream.println(analysedPairData);
+            for (AnalizedPairData analizedPairData : allAnalizedPairData) {
+                printStream.println(analizedPairData);
             }
 
-            printStream.println("\nThreshold Percentage Difference Used : " + thresholdPriceDifferencePercentage + " %");
             printStream.println("\n\n\n");
             printStream.println("<-----     Data Printing Complete     ----->");
         }
@@ -292,7 +326,7 @@ public class ArbitrageSystem implements Runnable {
         }
     }
 
-    public void makeQueriesAndSetData() {
+    private void makeQueriesAndSetData() {
         for (TheGraphQueryMaker theGraphQueryMaker : allQueryMakers) {
 
             JSONObject jsonObject = theGraphQueryMaker.sendQuery();
@@ -305,20 +339,58 @@ public class ArbitrageSystem implements Runnable {
                 for (int i = 0; i < allPairs.length(); i++) {
                     jsonObject = allPairs.getJSONObject(i);
                     pairData = allNetworkAllPairData.get(theGraphQueryMaker).get(jsonObject.getString("id"));
-                    if (pairData == null) {
-                        MainClass.logPrintStream.println("Found Rouge Key. Creating New PairData");
-                        pairData = new PairData(jsonObject.getString("id"), "", "", "", "");
-                        allNetworkAllPairData.get(theGraphQueryMaker).put(jsonObject.getString("id"), pairData);
+                    if (pairData != null) {
+                        pairData.setTokenVolumes(jsonObject.getString("reserve0"), jsonObject.getString("reserve1"));
                     }
-                    pairData.setTokenVolumes(jsonObject.getString("reserve0"), jsonObject.getString("reserve1"));
                 }
             }
         }
     }
 
-    public void analyseAllPairsForArbitragePossibility() {
+    private BigDecimal[] getMaximumPossibleProfitAndSellAmount(BigDecimal volumeOfT0OnExA, BigDecimal volumeOfT1OnExA,
+                                                               BigDecimal volumeOfT0OnExB, BigDecimal volumeOfT1OnExB) throws Exception {
 
-        allAnalysedPairData.clear();
+        /*
+         * The calculations are based such that: -
+         * 1) Sell Token 0 on Ex. A
+         * 2) Receive Token 1 from Ex. A
+         * 3) Sell Token 1 on Ex. B
+         * 4) Receive Token 0 from Ex. B
+         * */
+
+        BigDecimal[] retVal = new BigDecimal[2];
+
+        if (!(volumeOfT1OnExA.divide(volumeOfT0OnExA, RoundingMode.HALF_DOWN).compareTo(volumeOfT1OnExB.divide(volumeOfT0OnExB, RoundingMode.HALF_DOWN)) >= 0)) {
+            throw new Exception("Price on Token 0 on Exchange A must be more or equal to that on the Exchange B");
+        }
+
+        MathContext mathContext = new MathContext(10);
+
+        BigDecimal _0A_X_1B_ = volumeOfT0OnExA.multiply(volumeOfT1OnExB);
+        BigDecimal _0B_X_1A_ = volumeOfT0OnExB.multiply(volumeOfT1OnExA);
+
+        BigDecimal sellAmount = _0A_X_1B_.multiply(_0B_X_1A_).sqrt(mathContext);
+        sellAmount = sellAmount.subtract(_0A_X_1B_);
+        sellAmount = sellAmount.divide(volumeOfT1OnExA.add(volumeOfT1OnExB), RoundingMode.HALF_DOWN);
+
+        retVal[1] = sellAmount;
+
+        BigDecimal temp;
+        BigDecimal maxPossibleProfit = _0B_X_1A_.multiply(sellAmount);
+        temp = _0A_X_1B_.add(volumeOfT1OnExB.multiply(sellAmount)).add(volumeOfT1OnExA.multiply(sellAmount));
+        maxPossibleProfit = (maxPossibleProfit.divide(temp, RoundingMode.HALF_DOWN)).subtract(sellAmount);
+
+        retVal[0] = maxPossibleProfit;
+
+        return retVal;
+    }
+
+    private void analyseAllPairsForArbitragePossibility() {
+
+        allAnalizedPairData.clear();
+        ExecutorService pairAnalysingExecutorService = Executors.newFixedThreadPool(6);
+        ExecutorCompletionService<AnalizedPairData> executorCompletionService = new ExecutorCompletionService<>(pairAnalysingExecutorService);
+        int jobCount = 0;
         Set<String> keys = tokenIdToPairIdMapper.keySet();
         for (String key : keys) {
             ArrayList<String> allPairIdsForSpecificPair = tokenIdToPairIdMapper.get(key);
@@ -328,57 +400,53 @@ public class ArbitrageSystem implements Runnable {
                 continue;
             }
 
-            String token0 = allNetworkAllPairData.get(allQueryMakers.get(0)).get(allPairIdsForSpecificPair.get(0)).token0Symbol,
-                    token1 = allNetworkAllPairData.get(allQueryMakers.get(0)).get(allPairIdsForSpecificPair.get(0)).token1Symbol;
+            // sellMode 1 => Token 0 Static Price <= 1 & sellMode 2 => Token 0 Static Price > 1
+            int sellMode = (allNetworkAllPairData.get(allQueryMakers.get(0)).get(allPairIdsForSpecificPair.get(0))
+                    .getToken0StaticPrice().compareTo(BigDecimal.valueOf(1)) <= 0) ? 1 : 2;
 
-            BigDecimal minPrice = allNetworkAllPairData.get(allQueryMakers.get(0)).get(allPairIdsForSpecificPair.get(0)).getToken0StaticPrice(),
-                    maxPrice = allNetworkAllPairData.get(allQueryMakers.get(0)).get(allPairIdsForSpecificPair.get(0)).getToken0StaticPrice(),
-                    currentPrice;
-            int minIndex = 0, maxIndex = 0;
+            executorCompletionService.submit(new PairAnalizer(sellMode, allPairIdsForSpecificPair));
+            jobCount++;
+        }
 
-            for (int i = 0; i < len; i++) {
-                currentPrice = allNetworkAllPairData.get(allQueryMakers.get(i)).get(allPairIdsForSpecificPair.get(i)).getToken0StaticPrice();
-                if (currentPrice.compareTo(minPrice) < 0) {
-                    minPrice = currentPrice;
-                    minIndex = i;
-                } else if (currentPrice.compareTo(maxPrice) > 0) {
-                    maxPrice = currentPrice;
-                    maxIndex = i;
+        for (int i = 0; i < jobCount; i++) {
+            try {
+                AnalizedPairData analizedPairData = executorCompletionService.take().get();
+                if (analizedPairData != null) {
+                    // Not yet complete... Might add a check that profit > gasFees
+                    allAnalizedPairData.add(analizedPairData);
                 }
-            }
-
-            AnalysedPairData analysedPairData = new AnalysedPairData(key, token0, token1, minPrice, maxPrice, minIndex, maxIndex);
-            if (thresholdPriceDifferencePercentage.compareTo(BigDecimal.valueOf(analysedPairData.priceDifferencePercentage)) <= 0) {
-                allAnalysedPairData.add(analysedPairData);
+            } catch (InterruptedException | ExecutionException e) {
+                e.printStackTrace(MainClass.logPrintStream);
             }
         }
 
-        Collections.sort(allAnalysedPairData);
+        pairAnalysingExecutorService.shutdown();
+        try {
+            if (!pairAnalysingExecutorService.awaitTermination(5, TimeUnit.SECONDS) && !pairAnalysingExecutorService.isShutdown()) {
+                pairAnalysingExecutorService.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            e.printStackTrace(MainClass.logPrintStream);
+            if (!pairAnalysingExecutorService.isShutdown()) {
+                pairAnalysingExecutorService.shutdownNow();
+            }
+        }
+
+        Collections.sort(allAnalizedPairData);
     }
 
     public Set<String> getAllUniSwapPairIds() {
         return allNetworkAllPairData.get(allQueryMakers.get(0)).keySet();
     }
 
-    @Override
-    public void run() {
-        MainClass.logPrintStream.println("Arbitrage System Running Now...");
-        System.out.println("Arbitrage System Running Now...");
-        int count = 29;
+    private class CoreSystem implements Runnable {
 
-        while (shouldRunArbitrageSystem) {
-            try {
-                Thread.sleep(waitTimeInMillis);
-            } catch (Exception e) {
-                e.printStackTrace(MainClass.logPrintStream);
-            }
-            //--------------------------------------------------//
-
+        @Override
+        public void run() {
             try {
                 mutex.acquire();
             } catch (InterruptedException e) {
                 e.printStackTrace(MainClass.logPrintStream);
-                continue;
             }
             try {
                 makeQueriesAndSetData();
@@ -393,9 +461,120 @@ public class ArbitrageSystem implements Runnable {
                 mutex.release();
             }
         }
+    }
 
-        shutdownSystem();
-        MainClass.logPrintStream.println("Arbitrage System Stopped Running...");
-        System.out.println("Arbitrage System Stopped Running...");
+    // Pun Intended...
+    private class PairAnalizer implements Callable<AnalizedPairData> {
+
+        private final int sellMode;
+        private final ArrayList<String> allPairIds;
+
+        PairAnalizer(int sellMode, ArrayList<String> allPairIds) {
+            assert (sellMode == 1) || (sellMode == 2);
+            this.sellMode = sellMode;
+            this.allPairIds = allPairIds;
+        }
+
+        @Override
+        public AnalizedPairData call() {
+            int len = allPairIds.size();
+            ArrayList<PairData> pairDataArrayList = new ArrayList<>();
+            for (int i = 0; i < len; i++) {
+                String pairId = allPairIds.get(i);
+                if (!pairId.equalsIgnoreCase("")) {
+                    pairDataArrayList.add(allNetworkAllPairData.get(allQueryMakers.get(i)).get(pairId));
+                }
+            }
+
+            len = pairDataArrayList.size();
+            String sellTokenSymbol, buyTokenSymbol;
+            BigDecimal currentProfit = BigDecimal.valueOf(0);
+            BigDecimal currentSellAmount = BigDecimal.valueOf(0);
+            PairData sellExchange = null, buyExchange = null;
+            int sellExchangeIndex = -1, buyExchangeIndex = -1;
+
+            // Maximize the profit...
+            for (int i = 0; i < len; i++) {
+                for (int j = i + 1; j < len; j++) {
+                    PairData exchangeA = pairDataArrayList.get(i), exchangeB = pairDataArrayList.get(j);
+                    BigDecimal[] result;
+                    boolean didSwitch = false;
+
+                    try {
+                        if (sellMode == 1) {
+                            /*
+                             * This sellMode => Token 0 Static Price <= 1
+                             * E.g. => 500 ENJ : 1 ETH
+                             * Sell Token 1 on Ex A to buy Token 0
+                             * Then sell Token 0 on Ex B to buy Token 1
+                             * */
+                            if (exchangeA.getToken1StaticPrice().compareTo(exchangeB.getToken1StaticPrice()) < 0) {
+                                PairData temp = exchangeA;
+                                exchangeA = exchangeB;
+                                exchangeB = temp;
+                                didSwitch = true;
+                            }
+
+                            result = getMaximumPossibleProfitAndSellAmount(exchangeA.token1Volume, exchangeA.token0Volume,
+                                    exchangeB.token1Volume, exchangeB.token0Volume);
+                        } else {
+                            /*
+                             * This sellMode => Token 0 Price > 1
+                             * E.g. => 1 ETH : 500 ENJ
+                             * Sell Token 0 on Ex A to buy Token 1
+                             * Then sell Token 1 on Ex B to buy Token 0
+                             * */
+                            if (exchangeA.getToken0StaticPrice().compareTo(exchangeB.getToken0StaticPrice()) < 0) {
+                                PairData temp = exchangeA;
+                                exchangeA = exchangeB;
+                                exchangeB = temp;
+                                didSwitch = true;
+                            }
+
+                            result = getMaximumPossibleProfitAndSellAmount(exchangeA.token0Volume, exchangeA.token1Volume,
+                                    exchangeB.token0Volume, exchangeB.token1Volume);
+                        }
+
+                        if (result[0].compareTo(currentProfit) > 0) {
+                            currentProfit = result[0];
+                            currentSellAmount = result[1];
+                            sellExchange = exchangeA;
+                            buyExchange = exchangeB;
+
+                            if (didSwitch) {
+                                sellExchangeIndex = j;
+                                buyExchangeIndex = i;
+                            } else {
+                                sellExchangeIndex = i;
+                                buyExchangeIndex = j;
+                            }
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace(MainClass.logPrintStream);
+                    }
+                }
+            }
+
+            if (sellExchange != null) {
+                if (sellMode == 1) {
+                    sellTokenSymbol = sellExchange.token1Symbol;
+                    buyTokenSymbol = sellExchange.token0Symbol;
+
+                    return new AnalizedPairData(sellExchange.token0Symbol + ", " + sellExchange.token1Symbol,
+                            sellTokenSymbol, buyTokenSymbol, sellExchange.token1Id, sellExchange.token0Id, sellExchange, buyExchange,
+                            currentProfit, currentSellAmount, sellExchangeIndex, buyExchangeIndex);
+                } else {
+                    sellTokenSymbol = sellExchange.token0Symbol;
+                    buyTokenSymbol = sellExchange.token1Symbol;
+
+                    return new AnalizedPairData(sellExchange.token0Symbol + ", " + sellExchange.token1Symbol,
+                            sellTokenSymbol, buyTokenSymbol, sellExchange.token0Id, sellExchange.token1Id, sellExchange, buyExchange,
+                            currentProfit, currentSellAmount, sellExchangeIndex, buyExchangeIndex);
+                }
+
+            } else {
+                return null;
+            }
+        }
     }
 }

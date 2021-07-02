@@ -7,12 +7,15 @@ import java.time.Instant;
 import java.util.Date;
 
 public class PairData {
+    public final int index;
     public final String pairId, token0Id, token1Id, token0Symbol, token1Symbol;
-    private BigDecimal token0Volume, token1Volume, token0StaticPrice, token1StaticPrice;
+    public BigDecimal token0Volume, token1Volume;
+    private BigDecimal token0StaticPrice, token1StaticPrice;
     private Instant lastUpdateMoment;
     private static final SimpleDateFormat simpleDateFormat = new SimpleDateFormat("dd/MM/yyyy hh:mm:ss a");
 
-    public PairData(String pairId, String token0Id, String token1Id, String token0Symbol, String token1Symbol) {
+    public PairData(int index, String pairId, String token0Id, String token1Id, String token0Symbol, String token1Symbol) {
+        this.index = index;
         this.pairId = pairId;
         this.token0Id = token0Id;
         this.token1Id = token1Id;
