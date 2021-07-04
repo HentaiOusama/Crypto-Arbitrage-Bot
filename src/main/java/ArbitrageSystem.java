@@ -26,6 +26,7 @@ import java.util.concurrent.*;
  * (When not explicitly mentioned, or understood, then the following indexes mean 👇)
  * 0 => UniSwap
  * 1 => SushiSwap
+ * 2 => DefiSwap
  * ------------------------------------------------------------------------------------------
  * */
 public class ArbitrageSystem {
@@ -81,8 +82,8 @@ public class ArbitrageSystem {
             }
             tokenIdToPairIdMapper.addPairTracker(currentNetworkPairIds[j][1], currentNetworkPairIds[j][2], currentNetworkPairIds[j][0]);
             hashMap.put(currentNetworkPairIds[j][0], new PairData(index, currentNetworkPairIds[j][0], currentNetworkPairIds[j][1],
-                    currentNetworkPairIds[j][2], currentNetworkPairIds[j][3], currentNetworkPairIds[j][4]
-            ));
+                    currentNetworkPairIds[j][2], currentNetworkPairIds[j][3], currentNetworkPairIds[j][4], currentNetworkPairIds[j][5],
+                    currentNetworkPairIds[j][6]));
             stringBuilder.append("\"").append(currentNetworkPairIds[j][0]).append("\"");
             if (j < len - 1) {
                 stringBuilder.append(", ");
@@ -129,9 +130,11 @@ public class ArbitrageSystem {
                         id
                         token0 {
                             symbol
+                            decimals
                         }
                         token1 {
                             symbol
+                            decimals
                         }
                     }
                 }""", token0, token1));
@@ -149,6 +152,8 @@ public class ArbitrageSystem {
         retVal.add(token1.toLowerCase());
         retVal.add(jsonObject.getJSONObject("token0").getString("symbol"));
         retVal.add(jsonObject.getJSONObject("token1").getString("symbol"));
+        retVal.add(jsonObject.getJSONObject("token0").getString("decimals"));
+        retVal.add(jsonObject.getJSONObject("token1").getString("decimals"));
 
         for (String host : allExchangesToMonitor) {
             theGraphQueryMaker = new TheGraphQueryMaker(host, MainClass.logPrintStream);
@@ -298,7 +303,7 @@ public class ArbitrageSystem {
                                         
                     <-----     Trimmed Data After Analysis     ----->
                                         
-                    ,Buy Token Symbol,Sell Token Symbol,Exchange A,Exchange B,Max Possible Profit,Max Sell Amount
+                    ,Borrow Token Symbol,Repay Token Symbol,Exchange A,Exchange B,Max Possible Profit,Max Borrow Amount
                     """);
 
             for (AnalizedPairData analizedPairData : allAnalizedPairData) {
@@ -309,9 +314,9 @@ public class ArbitrageSystem {
                                         
                                         
                     Notes: -
-                    Sell Token means the token we sell on Exchange A and buy on Exchange B.
-                    Buy Token means the token we buy on Exchange A and sell on Exchange B.
-                    Max. profit and sell amount are in terms of sell token.
+                    Borrow Token means the token we borrow from Exchange A and sell on Exchange B.
+                    Repay Token means the token we repay to Exchange A that we get from Exchange B.
+                    Max. profit is in terms of repay token.
                                         
                                         
                                         
@@ -361,15 +366,121 @@ public class ArbitrageSystem {
         }
     }
 
-    private BigDecimal[] getMaximumPossibleProfitAndSellAmount(BigDecimal volumeOfT0OnExA, BigDecimal volumeOfT1OnExA,
-                                                               BigDecimal volumeOfT0OnExB, BigDecimal volumeOfT1OnExB) throws Exception {
+    public BigDecimal[] getMaximumPossibleProfitAndBorrowAmount(final BigDecimal volumeOfT0OnExA, final BigDecimal volumeOfT1OnExA,
+                                                                final BigDecimal volumeOfT0OnExB, final BigDecimal volumeOfT1OnExB) {
 
         /*
-         * The calculations are based such that: -
+         * The calculations are based on the following procedure: -
+         * 1) We borrow B1 amount of coin 1 from Ex. A
+         * 2) Sell those B1 amount coin 1 on Ex. B
+         * 3) We receive S2 amount of coin 2 from Ex. B
+         * 4) We return R2 amount of coin 2 to Ex. A
+         * 5) Profit = S2 - R2
+         *
+         * But, this procedure cannot be actually used for flash loans.
+         * */
+
+        final BigDecimal val0 = BigDecimal.valueOf(0);
+
+        /*
+         * Holders (Initialized to 0)
+         * Index 0 => Profit
+         * Index 1 => Borrow Amount
+         * */
+        BigDecimal[] result = new BigDecimal[]{val0, val0};
+
+        // Step 1
+        if (volumeOfT0OnExA.compareTo(val0) <= 0 || volumeOfT0OnExB.compareTo(val0) <= 0
+                || volumeOfT1OnExA.compareTo(val0) <= 0 || volumeOfT1OnExB.compareTo(val0) <= 0) {
+            return result;
+        } else if ((volumeOfT1OnExA.divide(volumeOfT0OnExA, RoundingMode.HALF_DOWN))
+                .compareTo(volumeOfT1OnExB.divide(volumeOfT0OnExB, RoundingMode.HALF_DOWN)) >= 0) {
+            return result;
+        }
+
+        // Step 2
+        BigDecimal _0B_X_1B_ = volumeOfT0OnExB.multiply(volumeOfT1OnExB);
+        BigDecimal _0A_X_1A_ = volumeOfT0OnExA.multiply(volumeOfT1OnExA);
+        BigDecimal denominator = _0B_X_1B_.subtract(_0A_X_1A_);
+
+        // Pre-calculations
+        BigDecimal _S_1A1B_ = volumeOfT1OnExA.add(volumeOfT1OnExB);
+        boolean singleBorrowMode = true;
+        BigDecimal B11 = null, B12 = null;
+
+        // if Step 3 else (Step 4 & Step 5)
+        if (denominator.compareTo(val0) == 0) {
+            BigDecimal B1 = (volumeOfT0OnExA.multiply(volumeOfT1OnExB)).subtract(volumeOfT0OnExB.multiply(volumeOfT1OnExA));
+            B1 = B1.divide(_S_1A1B_, RoundingMode.HALF_EVEN);
+
+            if ((B1.compareTo(val0) <= 0) || (B1.compareTo(volumeOfT0OnExA) >= 0)) {
+                return result;
+            } else {
+                result[1] = B1;
+            }
+        } else {
+            BigDecimal numeratorLeft = _S_1A1B_.multiply(volumeOfT0OnExA.multiply(volumeOfT0OnExB));
+            BigDecimal numeratorRight = volumeOfT0OnExA.add(volumeOfT0OnExB);
+            numeratorRight = numeratorRight.multiply((_0A_X_1A_.multiply(_0B_X_1B_)).sqrt(new MathContext(18)));
+
+            B11 = numeratorLeft.add(numeratorRight);
+            B12 = numeratorLeft.subtract(numeratorRight);
+            B11 = B11.divide(denominator, RoundingMode.HALF_EVEN);
+            B12 = B12.divide(denominator, RoundingMode.HALF_EVEN);
+            boolean a = (B11.compareTo(val0) > 0) && (B11.compareTo(volumeOfT0OnExA) < 0),
+                    b = (B12.compareTo(val0) > 0) && (B12.compareTo(volumeOfT0OnExA) < 0);
+
+            if (a && b) {
+                singleBorrowMode = false;
+            } else if (a) {
+                result[1] = B11;
+            } else if (b) {
+                result[1] = B12;
+            } else {
+                return result;
+            }
+        }
+
+        // Step 6
+        if (singleBorrowMode) {
+            BigDecimal P = (volumeOfT1OnExB.multiply(result[1]).divide(volumeOfT0OnExB.add(result[1]), RoundingMode.HALF_EVEN))
+                    .subtract(volumeOfT1OnExA.multiply(result[1]).divide(volumeOfT0OnExA.subtract(result[1]), RoundingMode.HALF_EVEN));
+
+            if ((P.compareTo(val0) > 0) && (P.compareTo(volumeOfT1OnExB) < 0)) {
+                result[0] = P;
+            }
+        } else {
+            BigDecimal P1 = (volumeOfT1OnExB.multiply(B11).divide(volumeOfT0OnExB.add(B11), RoundingMode.HALF_EVEN))
+                    .subtract(volumeOfT1OnExA.multiply(B11).divide(volumeOfT0OnExA.subtract(B11), RoundingMode.HALF_EVEN));
+            BigDecimal P2 = (volumeOfT1OnExB.multiply(B12).divide(volumeOfT0OnExB.add(B12), RoundingMode.HALF_EVEN))
+                    .subtract(volumeOfT1OnExA.multiply(B12).divide(volumeOfT0OnExA.subtract(B12), RoundingMode.HALF_EVEN));
+
+            if (P1.compareTo(val0) > 0 && P1.compareTo(volumeOfT1OnExB) < 0) {
+                result[0] = P1;
+                result[1] = B11;
+            }
+
+            if (P2.compareTo(val0) > 0 && P2.compareTo(volumeOfT1OnExB) < 0 && P2.compareTo(result[0]) > 0) {
+                result[0] = P2;
+                result[1] = B11;
+            }
+        }
+
+        return result;
+    }
+
+    @Deprecated
+    public BigDecimal[] getMaximumPossibleProfitAndSellAmountObsolete(BigDecimal volumeOfT0OnExA, BigDecimal volumeOfT1OnExA,
+                                                                      BigDecimal volumeOfT0OnExB, BigDecimal volumeOfT1OnExB) throws Exception {
+
+        /*
+         * The calculations are based on the following procedure: -
          * 1) Sell Token 0 on Ex. A
          * 2) Receive Token 1 from Ex. A
          * 3) Sell Token 1 on Ex. B
          * 4) Receive Token 0 from Ex. B
+         *
+         * But, this procedure cannot be actually used for flash loans.
          * */
 
         BigDecimal[] retVal = new BigDecimal[2];
@@ -402,7 +513,7 @@ public class ArbitrageSystem {
     private void analyseAllPairsForArbitragePossibility() {
 
         allAnalizedPairData.clear();
-        ExecutorService pairAnalysingExecutorService = Executors.newFixedThreadPool(6);
+        ExecutorService pairAnalysingExecutorService = Executors.newFixedThreadPool(Math.max(2, Runtime.getRuntime().availableProcessors() - 2));
         ExecutorCompletionService<AnalizedPairData> executorCompletionService = new ExecutorCompletionService<>(pairAnalysingExecutorService);
         int jobCount = 0;
         Set<String> keys = tokenIdToPairIdMapper.keySet();
@@ -414,11 +525,11 @@ public class ArbitrageSystem {
                 continue;
             }
 
-            // sellMode 1 => Token 0 Static Price <= 1 & sellMode 2 => Token 0 Static Price > 1
-            int sellMode = (allNetworkAllPairData.get(allQueryMakers.get(0)).get(allPairIdsForSpecificPair.get(0))
+            // borrowMode 1 => Token 0 Static Price <= 1 & borrowMode 2 => Token 0 Static Price > 1
+            int borrowMode = (allNetworkAllPairData.get(allQueryMakers.get(0)).get(allPairIdsForSpecificPair.get(0))
                     .getToken0StaticPrice().compareTo(BigDecimal.valueOf(1)) <= 0) ? 1 : 2;
 
-            executorCompletionService.submit(new PairAnalizer(sellMode, allPairIdsForSpecificPair));
+            executorCompletionService.submit(new PairAnalizer(borrowMode, allPairIdsForSpecificPair));
             jobCount++;
         }
 
@@ -480,12 +591,12 @@ public class ArbitrageSystem {
     // Pun Intended...
     private class PairAnalizer implements Callable<AnalizedPairData> {
 
-        private final int sellMode;
+        private final int borrowMode;
         private final ArrayList<String> allPairIds;
 
-        PairAnalizer(int sellMode, ArrayList<String> allPairIds) {
-            assert (sellMode == 1) || (sellMode == 2);
-            this.sellMode = sellMode;
+        PairAnalizer(int borrowMode, ArrayList<String> allPairIds) {
+            assert (borrowMode == 1) || (borrowMode == 2);
+            this.borrowMode = borrowMode;
             this.allPairIds = allPairIds;
         }
 
@@ -501,11 +612,11 @@ public class ArbitrageSystem {
             }
 
             len = pairDataArrayList.size();
-            String sellTokenSymbol, buyTokenSymbol;
+            String borrowTokenSymbol, repayTokenSymbol, borrowTokenId, repayTokenId;
             BigDecimal currentProfit = BigDecimal.valueOf(0);
-            BigDecimal currentSellAmount = BigDecimal.valueOf(0);
-            PairData sellExchange = null, buyExchange = null;
-            int sellExchangeIndex = -1, buyExchangeIndex = -1;
+            BigDecimal currentBorrowAmount = BigDecimal.valueOf(0);
+            PairData borrowExchange = null, sellExchange = null;
+            int borrowExchangeIndex = -1, sellExchangeIndex = -1;
 
             // Maximize the profit...
             for (int i = 0; i < len; i++) {
@@ -515,52 +626,58 @@ public class ArbitrageSystem {
                     boolean didSwitch = false;
 
                     try {
-                        if (sellMode == 1) {
+                        if (borrowMode == 1) {
                             /*
-                             * This sellMode => Token 0 Static Price <= 1
+                             * This borrowMode => Token 0 Static Price <= 1
                              * E.g. => 500 ENJ : 1 ETH
-                             * Sell Token 1 on Ex A to buy Token 0
+                             * Borrow Token 0 from Ex A
                              * Then sell Token 0 on Ex B to buy Token 1
+                             * Then repay Token 1 to Ex A
                              * */
-                            if (exchangeA.getToken1StaticPrice().compareTo(exchangeB.getToken1StaticPrice()) < 0) {
+                            if (exchangeA.getToken0StaticPrice().compareTo(exchangeB.getToken0StaticPrice()) > 0) {
                                 PairData temp = exchangeA;
                                 exchangeA = exchangeB;
                                 exchangeB = temp;
                                 didSwitch = true;
+
+                                // This makes sure that price of Borrow Token on Ex. A <= Price of Borrow Token on Ex. B
                             }
 
-                            result = getMaximumPossibleProfitAndSellAmount(exchangeA.token1Volume, exchangeA.token0Volume,
-                                    exchangeB.token1Volume, exchangeB.token0Volume);
+                            result = getMaximumPossibleProfitAndBorrowAmount(exchangeA.token0Volume, exchangeA.token1Volume,
+                                    exchangeB.token0Volume, exchangeB.token1Volume);
                         } else {
                             /*
-                             * This sellMode => Token 0 Price > 1
+                             * This borrowMode => Token 0 Price > 1
                              * E.g. => 1 ETH : 500 ENJ
-                             * Sell Token 0 on Ex A to buy Token 1
+                             * Borrow Token 1 from Ex A
                              * Then sell Token 1 on Ex B to buy Token 0
+                             * THen repay Token 0 to Ex A
                              * */
-                            if (exchangeA.getToken0StaticPrice().compareTo(exchangeB.getToken0StaticPrice()) < 0) {
+                            if (exchangeA.getToken1StaticPrice().compareTo(exchangeB.getToken1StaticPrice()) > 0) {
                                 PairData temp = exchangeA;
                                 exchangeA = exchangeB;
                                 exchangeB = temp;
                                 didSwitch = true;
+
+                                // This makes sure that price of Borrow token on Ex. A <= Price of Borrow Token on Ex. B
                             }
 
-                            result = getMaximumPossibleProfitAndSellAmount(exchangeA.token0Volume, exchangeA.token1Volume,
-                                    exchangeB.token0Volume, exchangeB.token1Volume);
+                            result = getMaximumPossibleProfitAndBorrowAmount(exchangeA.token1Volume, exchangeA.token0Volume,
+                                    exchangeB.token1Volume, exchangeB.token0Volume);
                         }
 
                         if (result[0].compareTo(currentProfit) > 0) {
                             currentProfit = result[0];
-                            currentSellAmount = result[1];
-                            sellExchange = exchangeA;
-                            buyExchange = exchangeB;
+                            currentBorrowAmount = result[1];
+                            borrowExchange = exchangeA;
+                            sellExchange = exchangeB;
 
                             if (didSwitch) {
-                                sellExchangeIndex = j;
-                                buyExchangeIndex = i;
-                            } else {
+                                borrowExchangeIndex = j;
                                 sellExchangeIndex = i;
-                                buyExchangeIndex = j;
+                            } else {
+                                borrowExchangeIndex = i;
+                                sellExchangeIndex = j;
                             }
                         }
                     } catch (Exception e) {
@@ -569,22 +686,23 @@ public class ArbitrageSystem {
                 }
             }
 
-            if (sellExchange != null) {
-                if (sellMode == 1) {
-                    sellTokenSymbol = sellExchange.token1Symbol;
-                    buyTokenSymbol = sellExchange.token0Symbol;
+            if (borrowExchange != null) {
+                if (borrowMode == 1) {
+                    borrowTokenSymbol = borrowExchange.token0Symbol;
+                    repayTokenSymbol = borrowExchange.token1Symbol;
+                    borrowTokenId = borrowExchange.token0Id;
+                    repayTokenId = borrowExchange.token1Id;
 
-                    return new AnalizedPairData(sellExchange.token0Symbol + ", " + sellExchange.token1Symbol,
-                            sellTokenSymbol, buyTokenSymbol, sellExchange.token1Id, sellExchange.token0Id, sellExchange, buyExchange,
-                            currentProfit, currentSellAmount, sellExchangeIndex, buyExchangeIndex);
                 } else {
-                    sellTokenSymbol = sellExchange.token0Symbol;
-                    buyTokenSymbol = sellExchange.token1Symbol;
+                    borrowTokenSymbol = borrowExchange.token1Symbol;
+                    repayTokenSymbol = borrowExchange.token0Symbol;
+                    borrowTokenId = borrowExchange.token1Id;
+                    repayTokenId = borrowExchange.token0Id;
 
-                    return new AnalizedPairData(sellExchange.token0Symbol + ", " + sellExchange.token1Symbol,
-                            sellTokenSymbol, buyTokenSymbol, sellExchange.token0Id, sellExchange.token1Id, sellExchange, buyExchange,
-                            currentProfit, currentSellAmount, sellExchangeIndex, buyExchangeIndex);
                 }
+                return new AnalizedPairData(borrowExchange.token0Symbol + ", " + borrowExchange.token1Symbol,
+                        borrowTokenSymbol, repayTokenSymbol, borrowTokenId, repayTokenId, borrowExchange, sellExchange,
+                        currentProfit, currentBorrowAmount, borrowExchangeIndex, sellExchangeIndex);
 
             } else {
                 return null;

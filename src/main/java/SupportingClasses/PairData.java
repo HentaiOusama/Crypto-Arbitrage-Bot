@@ -8,19 +8,22 @@ import java.util.Date;
 
 public class PairData {
     public final int index;
-    public final String pairId, token0Id, token1Id, token0Symbol, token1Symbol;
+    public final String pairId, token0Id, token1Id, token0Symbol, token1Symbol, token0Decimals, token1Decimals;
     public BigDecimal token0Volume, token1Volume;
     private BigDecimal token0StaticPrice, token1StaticPrice;
     private Instant lastUpdateMoment;
     private static final SimpleDateFormat simpleDateFormat = new SimpleDateFormat("dd/MM/yyyy hh:mm:ss a");
 
-    public PairData(int index, String pairId, String token0Id, String token1Id, String token0Symbol, String token1Symbol) {
+    public PairData(int index, String pairId, String token0Id, String token1Id, String token0Symbol, String token1Symbol,
+                    String token0Decimals, String token1Decimals) {
         this.index = index;
         this.pairId = pairId;
         this.token0Id = token0Id;
         this.token1Id = token1Id;
         this.token0Symbol = token0Symbol;
         this.token1Symbol = token1Symbol;
+        this.token0Decimals = token0Decimals;
+        this.token1Decimals = token1Decimals;
         token0Volume = BigDecimal.valueOf(0);
         token1Volume = BigDecimal.valueOf(0);
         lastUpdateMoment = Instant.now();

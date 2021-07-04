@@ -10,24 +10,24 @@ public class AnalizedPairData implements Comparable<AnalizedPairData> {
 
     public final String pairKeyForMapper;
     public final PairData exchangeA, exchangeB;
-    private final String sellTokenSymbol, buyTokenSymbol; // W.r.t. Ex. A
-    private final String sellToken, buyToken; // W.r.t. Ex. A
+    private final String borrowTokenSymbol, repayTokenSymbol; // W.r.t. Ex. A
+    private final String borrowToken, repayToken; // W.r.t. Ex. A
     private final int exchangeAIndex, exchangeBIndex;
 
-    public final BigDecimal maxPossibleProfit, maxSellAmount;
+    public final BigDecimal maxPossibleProfit, maxBorrowAmount;
 
-    public AnalizedPairData(String pairKeyForMapper, String sellTokenSymbol, String buyTokenSymbol, String sellToken, String buyToken,
-                            PairData exchangeA, PairData exchangeB, BigDecimal maxPossibleProfit, BigDecimal maxSellAmount,
+    public AnalizedPairData(String pairKeyForMapper, String borrowTokenSymbol, String repayTokenSymbol, String borrowToken, String repayToken,
+                            PairData exchangeA, PairData exchangeB, BigDecimal maxPossibleProfit, BigDecimal maxBorrowAmount,
                             int exchangeAIndex, int exchangeBIndex) {
         this.pairKeyForMapper = pairKeyForMapper;
-        this.sellTokenSymbol = sellTokenSymbol;
-        this.buyTokenSymbol = buyTokenSymbol;
-        this.sellToken = sellToken;
-        this.buyToken = buyToken;
+        this.borrowTokenSymbol = borrowTokenSymbol;
+        this.repayTokenSymbol = repayTokenSymbol;
+        this.borrowToken = borrowToken;
+        this.repayToken = repayToken;
         this.exchangeA = exchangeA;
         this.exchangeB = exchangeB;
         this.maxPossibleProfit = maxPossibleProfit.setScale(5, RoundingMode.HALF_DOWN);
-        this.maxSellAmount = maxSellAmount.setScale(5, RoundingMode.HALF_DOWN);
+        this.maxBorrowAmount = maxBorrowAmount.setScale(5, RoundingMode.HALF_DOWN);
         this.exchangeAIndex = exchangeAIndex;
         this.exchangeBIndex = exchangeBIndex;
     }
@@ -39,7 +39,7 @@ public class AnalizedPairData implements Comparable<AnalizedPairData> {
 
     @Override
     public String toString() {
-        return "," + buyTokenSymbol + "," + sellTokenSymbol + ", " + (exchangeAIndex + 1) + ", " + (exchangeBIndex + 1) + ","
-                + maxPossibleProfit + "," + maxSellAmount;
+        return "," + borrowTokenSymbol + "," + repayTokenSymbol + ", " + (exchangeAIndex + 1) + ", " + (exchangeBIndex + 1) + ","
+                + maxPossibleProfit + "," + maxBorrowAmount;
     }
 }

@@ -38,7 +38,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
     private ArbitrageSystem arbitrageSystem;
     private final ArrayList<String> allAdmins = new ArrayList<>();
     private final ArrayList<String> tempList = new ArrayList<>();
-    private String thresholdPercentage;
+    private String thresholdPercentage; // Not yet complete... Need to change this
     private int pollingInterval; // Milliseconds
 
     public MongoClient mongoClient;
@@ -46,7 +46,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
 
     // Tracker and Pair Data
     private String[] allTrackerUrls;
-    private String[][][] allPairIdsAndTokenDetails; // url -> [ pairId -> {paidID, token0Id, token1Id, token0Symbol, token1Symbol} ]
+    private String[][][] allPairIdsAndTokenDetails; // url -> [ pairId -> {paidID, token0Id, token1Id, token0Symbol, token1Symbol, decimal0, decimal1} ]
 
     ArbitrageTelegramBot() {
 
@@ -127,7 +127,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 assert foundDoc != null;
                 List<?> list2 = (List<?>) foundDoc.get("allPairIds");
                 if (i == 0) {
-                    allPairIdsAndTokenDetails = new String[len1][list2.size()][5];
+                    allPairIdsAndTokenDetails = new String[len1][list2.size()][7];
                 }
 
                 int len2 = list2.size();
@@ -250,8 +250,11 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 String token1Id = result.remove(0);
                 String token0Symbol = result.remove(0).toUpperCase();
                 String token1Symbol = result.remove(0).toUpperCase();
+                String decimal0 = result.remove(0);
+                String decimal1 = result.remove(0);
                 String msg = "Token0Id: " + token0Id + ", Token0Symbol: " + token0Symbol +
                         ", Token1Id: " + token1Id + ", Token1Symbol: " + token1Symbol +
+                        ", Token0Decimals : " + decimal0 + "Token1Decimals" + decimal1 +
                         "\n\nAll PairIds:-\n" + result;
 
                 String firstId = result.get(0);
@@ -284,6 +287,8 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                             newData.add(token1Id);
                             newData.add(token0Symbol);
                             newData.add(token1Symbol);
+                            newData.add(decimal0);
+                            newData.add(decimal1);
                             document.append(newPairId, newData);
 
                             Bson updateOperation = new Document("$set", document);
