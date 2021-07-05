@@ -14,22 +14,24 @@ public class AnalizedPairData implements Comparable<AnalizedPairData> {
     private final String borrowToken, repayToken; // W.r.t. Ex. A
     private final int exchangeAIndex, exchangeBIndex;
 
-    public final BigDecimal maxPossibleProfit, maxBorrowAmount;
+    public final BigDecimal maxPossibleProfit, maxBorrowAmount, repayTokenDerivedETH, maxProfitInETH;
 
     public AnalizedPairData(String pairKeyForMapper, String borrowTokenSymbol, String repayTokenSymbol, String borrowToken, String repayToken,
-                            PairData exchangeA, PairData exchangeB, BigDecimal maxPossibleProfit, BigDecimal maxBorrowAmount,
-                            int exchangeAIndex, int exchangeBIndex) {
+                            BigDecimal repayTokenDerivedETH, PairData exchangeA, PairData exchangeB, BigDecimal maxPossibleProfit,
+                            BigDecimal maxBorrowAmount, int exchangeAIndex, int exchangeBIndex) {
         this.pairKeyForMapper = pairKeyForMapper;
         this.borrowTokenSymbol = borrowTokenSymbol;
         this.repayTokenSymbol = repayTokenSymbol;
         this.borrowToken = borrowToken;
         this.repayToken = repayToken;
+        this.repayTokenDerivedETH = repayTokenDerivedETH;
         this.exchangeA = exchangeA;
         this.exchangeB = exchangeB;
-        this.maxPossibleProfit = maxPossibleProfit.setScale(5, RoundingMode.HALF_DOWN);
-        this.maxBorrowAmount = maxBorrowAmount.setScale(5, RoundingMode.HALF_DOWN);
+        this.maxPossibleProfit = maxPossibleProfit.setScale(8, RoundingMode.HALF_DOWN);
+        this.maxBorrowAmount = maxBorrowAmount.setScale(8, RoundingMode.HALF_DOWN);
         this.exchangeAIndex = exchangeAIndex;
         this.exchangeBIndex = exchangeBIndex;
+        maxProfitInETH = maxPossibleProfit.multiply(repayTokenDerivedETH).setScale(18, RoundingMode.HALF_DOWN);
     }
 
     @Override
@@ -40,6 +42,6 @@ public class AnalizedPairData implements Comparable<AnalizedPairData> {
     @Override
     public String toString() {
         return "," + borrowTokenSymbol + "," + repayTokenSymbol + ", " + (exchangeAIndex + 1) + ", " + (exchangeBIndex + 1) + ","
-                + maxPossibleProfit + "," + maxBorrowAmount;
+                + maxBorrowAmount + "," + maxPossibleProfit + ", " + maxProfitInETH;
     }
 }

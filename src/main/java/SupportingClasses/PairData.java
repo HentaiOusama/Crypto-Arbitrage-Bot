@@ -9,7 +9,7 @@ import java.util.Date;
 public class PairData {
     public final int index;
     public final String pairId, token0Id, token1Id, token0Symbol, token1Symbol, token0Decimals, token1Decimals;
-    public BigDecimal token0Volume, token1Volume;
+    public BigDecimal token0Volume, token1Volume, token0DerivedETH, token1DerivedETH;
     private BigDecimal token0StaticPrice, token1StaticPrice;
     private Instant lastUpdateMoment;
     private static final SimpleDateFormat simpleDateFormat = new SimpleDateFormat("dd/MM/yyyy hh:mm:ss a");
@@ -29,9 +29,15 @@ public class PairData {
         lastUpdateMoment = Instant.now();
     }
 
-    public void setTokenVolumes(String volume0, String volume1) {
-        token0Volume = new BigDecimal(volume0);
-        token1Volume = new BigDecimal(volume1);
+    public void setTokenVolumesAndDerivedETH(String volume0, String volume1, String token0DerivedETH, String token1DerivedETH) {
+        try {
+            token0Volume = new BigDecimal(volume0);
+            token1Volume = new BigDecimal(volume1);
+            this.token0DerivedETH = new BigDecimal(token0DerivedETH);
+            this.token1DerivedETH = new BigDecimal(token1DerivedETH);
+        } catch (NumberFormatException e) {
+            e.printStackTrace();
+        }
         calculateAndSetStaticData();
     }
 

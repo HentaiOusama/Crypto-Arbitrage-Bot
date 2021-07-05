@@ -97,6 +97,12 @@ public class ArbitrageSystem {
                      id
                      reserve0
                      reserve1
+                     token0 {
+                        derivedETH
+                     }
+                     token1 {
+                        derivedETH
+                     }
                    }
                 }""", stringBuilder)
         );
@@ -179,6 +185,10 @@ public class ArbitrageSystem {
         return retVal;
     }
 
+    public Set<String> getAllUniSwapPairIds() {
+        return allNetworkAllPairData.get(allQueryMakers.get(0)).keySet();
+    }
+
     public ArrayList<String> removePair(String token0, String token1) {
         String key = tokenIdToPairIdMapper.getKey(token0, token1);
         ArrayList<String> retVal = null;
@@ -211,10 +221,11 @@ public class ArbitrageSystem {
         return retVal;
     }
 
-    public void shutdownWeb3j() {
-        if (web3j != null) {
-            web3j.shutdown();
-        }
+    public void startSystem() {
+        MainClass.logPrintStream.println("Arbitrage System Running Now...");
+        System.out.println("Arbitrage System Running Now...");
+
+        coreSystemExecutorService.scheduleWithFixedDelay(new CoreSystem(), 0, waitTimeInMillis, TimeUnit.MILLISECONDS);
     }
 
     public void buildWeb3j() {
@@ -229,11 +240,10 @@ public class ArbitrageSystem {
         }
     }
 
-    public void startSystem() {
-        MainClass.logPrintStream.println("Arbitrage System Running Now...");
-        System.out.println("Arbitrage System Running Now...");
-
-        coreSystemExecutorService.scheduleWithFixedDelay(new CoreSystem(), 0, waitTimeInMillis, TimeUnit.MILLISECONDS);
+    public void shutdownWeb3j() {
+        if (web3j != null) {
+            web3j.shutdown();
+        }
     }
 
     public void stopSystem() {
@@ -303,7 +313,7 @@ public class ArbitrageSystem {
                                         
                     <-----     Trimmed Data After Analysis     ----->
                                         
-                    ,Borrow Token Symbol,Repay Token Symbol,Exchange A,Exchange B,Max Possible Profit,Max Borrow Amount
+                    ,Borrow Token Symbol,Repay Token Symbol,Exchange A,Exchange B,Max. Borrow Amount,Max. Possible Profit,Max. Profit(in ETH)
                     """);
 
             for (AnalizedPairData analizedPairData : allAnalizedPairData) {
@@ -359,11 +369,64 @@ public class ArbitrageSystem {
                     jsonObject = allPairs.getJSONObject(i);
                     pairData = allNetworkAllPairData.get(theGraphQueryMaker).get(jsonObject.getString("id"));
                     if (pairData != null) {
-                        pairData.setTokenVolumes(jsonObject.getString("reserve0"), jsonObject.getString("reserve1"));
+                        pairData.setTokenVolumesAndDerivedETH(
+                                jsonObject.getString("reserve0"), jsonObject.getString("reserve1"),
+                                jsonObject.getJSONObject("token0").getString("derivedETH"),
+                                jsonObject.getJSONObject("token1").getString("derivedETH"));
                     }
                 }
             }
         }
+    }
+
+    private void analizeAllPairsForArbitragePossibility() {
+
+        allAnalizedPairData.clear();
+        ExecutorService pairAnalysingExecutorService = Executors.newFixedThreadPool(Math.max(2, Runtime.getRuntime().availableProcessors() - 2));
+        ExecutorCompletionService<AnalizedPairData> executorCompletionService = new ExecutorCompletionService<>(pairAnalysingExecutorService);
+        int jobCount = 0;
+        Set<String> keys = tokenIdToPairIdMapper.keySet();
+        for (String key : keys) {
+            ArrayList<String> allPairIdsForSpecificPair = tokenIdToPairIdMapper.get(key);
+            int len = allPairIdsForSpecificPair.size();
+            if (len <= 0) {
+                // Hopefully, we will never enter this block, but just in case.
+                continue;
+            }
+
+            // borrowMode 1 => Token 0 Static Price <= 1 & borrowMode 2 => Token 0 Static Price > 1
+            int borrowMode = (allNetworkAllPairData.get(allQueryMakers.get(0)).get(allPairIdsForSpecificPair.get(0))
+                    .getToken0StaticPrice().compareTo(BigDecimal.valueOf(1)) <= 0) ? 1 : 2;
+
+            executorCompletionService.submit(new PairAnalizer(borrowMode, allPairIdsForSpecificPair));
+            jobCount++;
+        }
+
+        for (int i = 0; i < jobCount; i++) {
+            try {
+                AnalizedPairData analizedPairData = executorCompletionService.take().get();
+                if (analizedPairData != null) {
+                    // Not yet complete... Might add a check that profit > gasFees
+                    allAnalizedPairData.add(analizedPairData);
+                }
+            } catch (InterruptedException | ExecutionException e) {
+                e.printStackTrace(MainClass.logPrintStream);
+            }
+        }
+
+        pairAnalysingExecutorService.shutdown();
+        try {
+            if (!pairAnalysingExecutorService.awaitTermination(5, TimeUnit.SECONDS) && !pairAnalysingExecutorService.isShutdown()) {
+                pairAnalysingExecutorService.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            e.printStackTrace(MainClass.logPrintStream);
+            if (!pairAnalysingExecutorService.isShutdown()) {
+                pairAnalysingExecutorService.shutdownNow();
+            }
+        }
+
+        Collections.sort(allAnalizedPairData);
     }
 
     public BigDecimal[] getMaximumPossibleProfitAndBorrowAmount(final BigDecimal volumeOfT0OnExA, final BigDecimal volumeOfT1OnExA,
@@ -510,60 +573,6 @@ public class ArbitrageSystem {
         return retVal;
     }
 
-    private void analyseAllPairsForArbitragePossibility() {
-
-        allAnalizedPairData.clear();
-        ExecutorService pairAnalysingExecutorService = Executors.newFixedThreadPool(Math.max(2, Runtime.getRuntime().availableProcessors() - 2));
-        ExecutorCompletionService<AnalizedPairData> executorCompletionService = new ExecutorCompletionService<>(pairAnalysingExecutorService);
-        int jobCount = 0;
-        Set<String> keys = tokenIdToPairIdMapper.keySet();
-        for (String key : keys) {
-            ArrayList<String> allPairIdsForSpecificPair = tokenIdToPairIdMapper.get(key);
-            int len = allPairIdsForSpecificPair.size();
-            if (len <= 0) {
-                // Hopefully, we will never enter this block, but just in case.
-                continue;
-            }
-
-            // borrowMode 1 => Token 0 Static Price <= 1 & borrowMode 2 => Token 0 Static Price > 1
-            int borrowMode = (allNetworkAllPairData.get(allQueryMakers.get(0)).get(allPairIdsForSpecificPair.get(0))
-                    .getToken0StaticPrice().compareTo(BigDecimal.valueOf(1)) <= 0) ? 1 : 2;
-
-            executorCompletionService.submit(new PairAnalizer(borrowMode, allPairIdsForSpecificPair));
-            jobCount++;
-        }
-
-        for (int i = 0; i < jobCount; i++) {
-            try {
-                AnalizedPairData analizedPairData = executorCompletionService.take().get();
-                if (analizedPairData != null) {
-                    // Not yet complete... Might add a check that profit > gasFees
-                    allAnalizedPairData.add(analizedPairData);
-                }
-            } catch (InterruptedException | ExecutionException e) {
-                e.printStackTrace(MainClass.logPrintStream);
-            }
-        }
-
-        pairAnalysingExecutorService.shutdown();
-        try {
-            if (!pairAnalysingExecutorService.awaitTermination(5, TimeUnit.SECONDS) && !pairAnalysingExecutorService.isShutdown()) {
-                pairAnalysingExecutorService.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            e.printStackTrace(MainClass.logPrintStream);
-            if (!pairAnalysingExecutorService.isShutdown()) {
-                pairAnalysingExecutorService.shutdownNow();
-            }
-        }
-
-        Collections.sort(allAnalizedPairData);
-    }
-
-    public Set<String> getAllUniSwapPairIds() {
-        return allNetworkAllPairData.get(allQueryMakers.get(0)).keySet();
-    }
-
     private class CoreSystem implements Runnable {
 
         @Override
@@ -575,7 +584,7 @@ public class ArbitrageSystem {
             }
             try {
                 makeQueriesAndSetData();
-                analyseAllPairsForArbitragePossibility();
+                analizeAllPairsForArbitragePossibility();
                 if (count == 0) {
                     printAllDeterminedData(MainClass.logPrintStream);
                     count = 29;
@@ -615,6 +624,7 @@ public class ArbitrageSystem {
             String borrowTokenSymbol, repayTokenSymbol, borrowTokenId, repayTokenId;
             BigDecimal currentProfit = BigDecimal.valueOf(0);
             BigDecimal currentBorrowAmount = BigDecimal.valueOf(0);
+            BigDecimal repayTokenDerivedETH;
             PairData borrowExchange = null, sellExchange = null;
             int borrowExchangeIndex = -1, sellExchangeIndex = -1;
 
@@ -692,16 +702,18 @@ public class ArbitrageSystem {
                     repayTokenSymbol = borrowExchange.token1Symbol;
                     borrowTokenId = borrowExchange.token0Id;
                     repayTokenId = borrowExchange.token1Id;
+                    repayTokenDerivedETH = borrowExchange.token1DerivedETH;
 
                 } else {
                     borrowTokenSymbol = borrowExchange.token1Symbol;
                     repayTokenSymbol = borrowExchange.token0Symbol;
                     borrowTokenId = borrowExchange.token1Id;
                     repayTokenId = borrowExchange.token0Id;
-
+                    repayTokenDerivedETH = borrowExchange.token0DerivedETH;
                 }
+
                 return new AnalizedPairData(borrowExchange.token0Symbol + ", " + borrowExchange.token1Symbol,
-                        borrowTokenSymbol, repayTokenSymbol, borrowTokenId, repayTokenId, borrowExchange, sellExchange,
+                        borrowTokenSymbol, repayTokenSymbol, borrowTokenId, repayTokenId, repayTokenDerivedETH, borrowExchange, sellExchange,
                         currentProfit, currentBorrowAmount, borrowExchangeIndex, sellExchangeIndex);
 
             } else {
