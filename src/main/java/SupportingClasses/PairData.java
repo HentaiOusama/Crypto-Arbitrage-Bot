@@ -7,7 +7,7 @@ import java.time.Instant;
 import java.util.Date;
 
 public class PairData {
-    public final int index;
+    public final int index, routerIndex;
     public final String pairId, token0Id, token1Id, token0Symbol, token1Symbol, token0Decimals, token1Decimals;
     public BigDecimal token0Volume, token1Volume, token0DerivedETH, token1DerivedETH;
     private BigDecimal token0StaticPrice, token1StaticPrice;
@@ -15,7 +15,7 @@ public class PairData {
     private static final SimpleDateFormat simpleDateFormat = new SimpleDateFormat("dd/MM/yyyy hh:mm:ss a");
 
     public PairData(int index, String pairId, String token0Id, String token1Id, String token0Symbol, String token1Symbol,
-                    String token0Decimals, String token1Decimals) {
+                    String token0Decimals, String token1Decimals, int routerIndex) {
         this.index = index;
         this.pairId = pairId;
         this.token0Id = token0Id;
@@ -26,6 +26,7 @@ public class PairData {
         this.token1Decimals = token1Decimals;
         token0Volume = BigDecimal.valueOf(0);
         token1Volume = BigDecimal.valueOf(0);
+        this.routerIndex = routerIndex;
         lastUpdateMoment = Instant.now();
     }
 

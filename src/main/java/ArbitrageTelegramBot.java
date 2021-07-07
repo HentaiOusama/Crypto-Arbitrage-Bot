@@ -16,6 +16,7 @@ import org.telegram.telegrambots.meta.api.methods.send.SendDocument;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.api.objects.Update;
+import org.web3j.crypto.Credentials;
 
 import java.io.*;
 import java.math.BigDecimal;
@@ -38,15 +39,16 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
     private ArbitrageSystem arbitrageSystem;
     private final ArrayList<String> allAdmins = new ArrayList<>();
     private final ArrayList<String> tempList = new ArrayList<>();
-    private String thresholdPercentage; // Not yet complete... Need to change this
-    private int pollingInterval; // Milliseconds
+    private String thresholdPercentage; // TODO : Not yet complete... Need to change this
+    private int pollingInterval, maxPendingTrxAllowed; // Milliseconds, int
 
     public MongoClient mongoClient;
     private MongoCollection<Document> allPairAndTrackersDataCollection;
 
     // Tracker and Pair Data
     private String[] allTrackerUrls;
-    private String[][][] allPairIdsAndTokenDetails; // url -> [ pairId -> {paidID, token0Id, token1Id, token0Symbol, token1Symbol, decimal0, decimal1} ]
+    private String[][][] allPairIdsAndTokenDetails; // Url -> [ pairId -> {paidID, token0Id, token1Id, token0Symbol, token1Symbol, decimal0, decimal1} ]
+    private String walletPrivateKey, arbitrageContractAddress;
 
     ArbitrageTelegramBot() {
 
@@ -58,6 +60,9 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 try {
                     if (mongoClient != null) {
                         mongoClient.close();
+                    }
+                    if (arbitrageSystem != null) {
+                        arbitrageSystem.stopSystem();
                     }
                     MainClass.logPrintStream.println("Shutdown Handler Called...");
                     MainClass.logPrintStream.close();
@@ -85,8 +90,8 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
             }
         }
         MainClass.logPrintStream.println("Admins : \n" + allAdmins + "\n\n");
-        if (shouldRunBot) {
-            startArbitrageSystem();
+        if (shouldRunBot && !startArbitrageSystem()) {
+            sendMessage(allAdmins.get(0), "Error occurred when trying to start the bot. Fatal Error. Check it immediately");
         }
     }
 
@@ -110,6 +115,9 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         assert foundDoc != null;
 
         thresholdPercentage = (String) foundDoc.get("thresholdPercentage");
+        walletPrivateKey = (String) foundDoc.get("walletPrivateKey");
+        arbitrageContractAddress = (String) foundDoc.get("arbitrageContractAddress");
+        maxPendingTrxAllowed = (int) foundDoc.get("maxPendingTrxAllowed");
 
         List<?> list1 = (List<?>) foundDoc.get("TrackerUrls");
         int len1 = list1.size();
@@ -127,7 +135,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 assert foundDoc != null;
                 List<?> list2 = (List<?>) foundDoc.get("allPairIds");
                 if (i == 0) {
-                    allPairIdsAndTokenDetails = new String[len1][list2.size()][7];
+                    allPairIdsAndTokenDetails = new String[len1][list2.size()][8];
                 }
 
                 int len2 = list2.size();
@@ -139,6 +147,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
 
                         int len3 = list3.size();
                         allPairIdsAndTokenDetails[i][j][0] = currentPairId;
+                        allPairIdsAndTokenDetails[i][j][7] = (String) foundDoc.get("routerIndex");
                         for (int k = 0; k < len3; k++) {
                             Object item3 = list3.get(k);
                             if (item3 instanceof String) {
@@ -151,7 +160,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         }
     }
 
-    public void startArbitrageSystem() {
+    public boolean startArbitrageSystem() {
         getInitializingDataFromMongoDB();
 
         if (!shouldRunBot) {
@@ -164,20 +173,31 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
             allPairAndTrackersDataCollection.updateOne(foundDoc, updateOperation);
         }
 
-        ArbitrageSystem arbitrageSystem = new ArbitrageSystem(this, "", pollingInterval,
-                allTrackerUrls, allPairIdsAndTokenDetails);
+        try {
+            ArbitrageSystem arbitrageSystem = new ArbitrageSystem(this, arbitrageContractAddress, walletPrivateKey, pollingInterval,
+                    maxPendingTrxAllowed, allTrackerUrls, allPairIdsAndTokenDetails); // TODO: Add values here...
 
-        MainClass.logPrintStream.println("Call to Arbitrage Start System...");
-        System.out.println("Call to Arbitrage Start System...");
-        arbitrageSystem.startSystem();
-        this.arbitrageSystem = arbitrageSystem;
-        tempList.clear();
+            MainClass.logPrintStream.println("Call to Arbitrage Start System...");
+            System.out.println("Call to Arbitrage Start System...");
+            arbitrageSystem.startSystem();
+            this.arbitrageSystem = arbitrageSystem;
+            tempList.clear();
+        } catch (IllegalArgumentException e) {
+            e.printStackTrace(MainClass.logPrintStream);
+            arbitrageSystem = null;
+            stopArbitrageSystem();
+            return false;
+        }
+
+        return true;
     }
 
     public void stopArbitrageSystem() {
-        MainClass.logPrintStream.println("Call to Arbitrage Stop System Method");
-        System.out.println("Call to Arbitrage Stop System Method");
-        arbitrageSystem.stopSystem();
+        if (arbitrageSystem != null) {
+            MainClass.logPrintStream.println("Call to Arbitrage Stop System Method");
+            System.out.println("Call to Arbitrage Stop System Method");
+            arbitrageSystem.stopSystem();
+        }
 
         if (shouldRunBot) {
             shouldRunBot = false;
@@ -383,7 +403,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         }
 
         String[] params = text.trim().split(" ");
-        if (params.length == 2) {
+        if (params.length == 3) {
             try {
                 Document document = new Document("trackerId", params[1]);
                 Document foundDoc = allPairAndTrackersDataCollection.find(document).first();
@@ -436,6 +456,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                         }
                     }
                     document.append("allPairIds", availablePairs);
+                    document.append("routerIndex", params[2]);
                     allPairAndTrackersDataCollection.insertOne(document);
 
 
@@ -476,7 +497,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
             }
         } else {
             sendMessage(chatId, "Wrong usage of command. Correct Format: -\n" +
-                    "addNewTracker theGraphUrlEndpoint");
+                    "addNewTracker theGraphUrlEndpoint routerIndex");
         }
     }
 
@@ -495,7 +516,6 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
     @Override
     public void onUpdateReceived(Update update) {
 
-        // Need to add the authorized Check Using: update.getMessage().getChatId()
         if (update.hasMessage() && update.getMessage().hasText()) {
             String chatId = update.getMessage().getChatId().toString();
             String text = update.getMessage().getText();
@@ -511,8 +531,11 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     sendMessage(chatId, "The bot is already running...");
                 } else {
                     try {
-                        startArbitrageSystem();
-                        sendMessage(chatId, "Operation Successful...");
+                        if (startArbitrageSystem()) {
+                            sendMessage(chatId, "Operation Successful...");
+                        } else {
+                            throw new Exception("Unable to start the system");
+                        }
                     } catch (Exception e) {
                         sendMessage(chatId, "There was an error while starting the bot... Please contact : @OreGaZembuTouchiSuru");
                         e.printStackTrace(MainClass.logPrintStream);
@@ -531,8 +554,11 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     stopArbitrageSystem();
                 }
                 try {
-                    startArbitrageSystem();
-                    sendMessage(chatId, "Bot turned on.\n\nOperation Successful");
+                    if (startArbitrageSystem()) {
+                        sendMessage(chatId, "Bot turned on.\n\nOperation Successful");
+                    } else {
+                        throw new Exception("Unable to start the bot");
+                    }
                 } catch (Exception e) {
                     sendMessage(chatId, "There was an error while turning on the bot...");
                 }
@@ -549,7 +575,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                         Bson updateOperation = new Document("$set", document);
                         allPairAndTrackersDataCollection.updateOne(foundDoc, updateOperation);
 
-//                        Not yet Complete....
+//                        TODO : Need to change this to threshold levels...
 //                        if (shouldRunBot) {
 //                            arbitrageSystem.thresholdProfitAmount = decimalValue;
 //                        }
@@ -610,6 +636,30 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                         sendMessage(chatId, "Error while generating data...");
                     }
                 }
+            } else if (text.toLowerCase().startsWith("setWalletPrivateKey".toLowerCase())) {
+                String[] params = text.trim().split(" ");
+                if (params.length == 2) {
+                    try {
+                        Credentials credentials = Credentials.create(params[1]);
+                        Document document = new Document("identifier", "root");
+                        Document foundDoc = allPairAndTrackersDataCollection.find(document).first();
+                        assert foundDoc != null;
+
+                        document = new Document("walletPrivateKey", params[1]);
+                        Bson updateOperation = new Document("$set", document);
+                        allPairAndTrackersDataCollection.updateOne(foundDoc, updateOperation);
+
+                        walletPrivateKey = params[1];
+                        sendMessage(chatId, "Operation Successful.\n" +
+                                "PrivateKey : " + params[1] + "\n\nWallet Address : " + credentials.getAddress() +
+                                "\n\nPlease restart the bot for changes to take effect...");
+                    } catch (NumberFormatException e) {
+                        sendMessage(chatId, "This private key is invalid.");
+                    }
+                } else {
+                    sendMessage(chatId, "Invalid format. Correct format :\n" +
+                            "setWalletPrivateKey privateKey");
+                }
             } else if (text.equalsIgnoreCase("getLogs")) {
                 sendLogs(chatId);
             } else if (text.equalsIgnoreCase("clearLogs")) {
@@ -650,6 +700,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                         removeOldPair token0Addy token1Addy
                         addNewTrackerUrl theGraphUrl
                         getAllPairDetails
+                        setWalletPrivateKey privateKey
                         getLogs
                         clearLogs
                         Commands

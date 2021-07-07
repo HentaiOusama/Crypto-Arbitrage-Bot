@@ -4,14 +4,28 @@ import SupportingClasses.TheGraphQueryMaker;
 import SupportingClasses.TokenIdToPairIdMapper;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.web3j.abi.FunctionEncoder;
+import org.web3j.abi.TypeReference;
+import org.web3j.abi.datatypes.Address;
+import org.web3j.abi.datatypes.Bool;
+import org.web3j.abi.datatypes.Function;
+import org.web3j.abi.datatypes.Uint;
+import org.web3j.abi.datatypes.generated.Uint256;
+import org.web3j.crypto.Credentials;
 import org.web3j.protocol.Web3j;
+import org.web3j.protocol.core.BatchRequest;
+import org.web3j.protocol.core.DefaultBlockParameterName;
+import org.web3j.protocol.core.methods.response.EthGetTransactionCount;
 import org.web3j.protocol.http.HttpService;
+import org.web3j.tx.ChainIdLong;
+import org.web3j.tx.RawTransactionManager;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.math.MathContext;
 import java.math.RoundingMode;
 import java.util.*;
@@ -36,26 +50,43 @@ public class ArbitrageSystem {
     public int waitTimeInMillis, count = 29;
     private final ArbitrageTelegramBot arbitrageTelegramBot;
     private final Semaphore mutex = new Semaphore(1);
+    private final MathContext mathContextUp = new MathContext(20, RoundingMode.HALF_UP),
+            mathContextDown = new MathContext(20, RoundingMode.HALF_DOWN),
+            mathContextEven = new MathContext(20, RoundingMode.HALF_EVEN);
 
     // Web3 Related Variables
-    private Web3j web3j;
+    private volatile Web3j web3j;
 
     // Crypto Related Variables
     private final ArrayList<String> allExchangesToMonitor = new ArrayList<>();
     private final String arbitrageContractAddress;
     private final ArrayList<TheGraphQueryMaker> allQueryMakers = new ArrayList<>();
-    // Mapping TheGraphQueryMaker to a mapping of pairId mapped to PairData 👇
+    // Mapping TheGraphQueryMaker to a mapping of pairId mapped to PairData 👇 //
     private final HashMap<TheGraphQueryMaker, HashMap<String, PairData>> allNetworkAllPairData = new HashMap<>();
     private final TokenIdToPairIdMapper tokenIdToPairIdMapper = new TokenIdToPairIdMapper();
     private final ArrayList<AnalizedPairData> allAnalizedPairData = new ArrayList<>();
+    private final BigInteger gasLimit = new BigInteger("400000");
+    private volatile BigDecimal maxGasFees = new BigDecimal(gasLimit.multiply(BigInteger.valueOf(20))) // Default Gas Price set to 20 gwei
+            .divide(new BigDecimal("1000000000"), mathContextUp);
+    private final Credentials credentials;
+    private final int maxPendingTrxAllowed;
+    private final ArrayList<String> sentTransactionHashes = new ArrayList<>(); // TODO : Add thread to make analytics from this ArrayList.
 
 
-    ArbitrageSystem(ArbitrageTelegramBot arbitrageTelegramBot, String arbitrageContractAddress, int waitTimeInMillis,
-                    String[] dexTheGraphHostUrls, String[][][] allPairIdsOnAllNetworks) {
+    ArbitrageSystem(ArbitrageTelegramBot arbitrageTelegramBot, String arbitrageContractAddress, String privateKey,
+                    int waitTimeInMillis, int maxPendingTrxAllowed, String[] dexTheGraphHostUrls,
+                    String[][][] allPairIdsOnAllNetworks) throws IllegalArgumentException {
         this.arbitrageTelegramBot = arbitrageTelegramBot;
         this.arbitrageContractAddress = arbitrageContractAddress;
         this.waitTimeInMillis = waitTimeInMillis;
+        this.maxPendingTrxAllowed = maxPendingTrxAllowed;
         this.allExchangesToMonitor.addAll(Arrays.asList(dexTheGraphHostUrls));
+        try {
+            credentials = Credentials.create(privateKey);
+        } catch (NumberFormatException e) {
+            e.printStackTrace(MainClass.logPrintStream);
+            throw new IllegalArgumentException("Invalid Private Key");
+        }
 
         int length = dexTheGraphHostUrls.length;
         for (int i = 0; i < length; i++) {
@@ -83,7 +114,7 @@ public class ArbitrageSystem {
             tokenIdToPairIdMapper.addPairTracker(currentNetworkPairIds[j][1], currentNetworkPairIds[j][2], currentNetworkPairIds[j][0]);
             hashMap.put(currentNetworkPairIds[j][0], new PairData(index, currentNetworkPairIds[j][0], currentNetworkPairIds[j][1],
                     currentNetworkPairIds[j][2], currentNetworkPairIds[j][3], currentNetworkPairIds[j][4], currentNetworkPairIds[j][5],
-                    currentNetworkPairIds[j][6]));
+                    currentNetworkPairIds[j][6], Integer.parseInt(currentNetworkPairIds[j][7])));
             stringBuilder.append("\"").append(currentNetworkPairIds[j][0]).append("\"");
             if (j < len - 1) {
                 stringBuilder.append(", ");
@@ -224,7 +255,7 @@ public class ArbitrageSystem {
     public void startSystem() {
         MainClass.logPrintStream.println("Arbitrage System Running Now...");
         System.out.println("Arbitrage System Running Now...");
-
+        buildWeb3j();
         coreSystemExecutorService.scheduleWithFixedDelay(new CoreSystem(), 0, waitTimeInMillis, TimeUnit.MILLISECONDS);
     }
 
@@ -243,6 +274,7 @@ public class ArbitrageSystem {
     public void shutdownWeb3j() {
         if (web3j != null) {
             web3j.shutdown();
+            web3j = null;
         }
     }
 
@@ -251,6 +283,7 @@ public class ArbitrageSystem {
             mutex.acquire();
         } catch (InterruptedException e) {
             e.printStackTrace(MainClass.logPrintStream);
+            return;
         }
         try {
             coreSystemExecutorService.shutdown();
@@ -406,7 +439,6 @@ public class ArbitrageSystem {
             try {
                 AnalizedPairData analizedPairData = executorCompletionService.take().get();
                 if (analizedPairData != null) {
-                    // Not yet complete... Might add a check that profit > gasFees
                     allAnalizedPairData.add(analizedPairData);
                 }
             } catch (InterruptedException | ExecutionException e) {
@@ -427,6 +459,7 @@ public class ArbitrageSystem {
         }
 
         Collections.sort(allAnalizedPairData);
+        Collections.reverse(allAnalizedPairData);
     }
 
     public BigDecimal[] getMaximumPossibleProfitAndBorrowAmount(final BigDecimal volumeOfT0OnExA, final BigDecimal volumeOfT1OnExA,
@@ -456,8 +489,8 @@ public class ArbitrageSystem {
         if (volumeOfT0OnExA.compareTo(val0) <= 0 || volumeOfT0OnExB.compareTo(val0) <= 0
                 || volumeOfT1OnExA.compareTo(val0) <= 0 || volumeOfT1OnExB.compareTo(val0) <= 0) {
             return result;
-        } else if ((volumeOfT1OnExA.divide(volumeOfT0OnExA, RoundingMode.HALF_DOWN))
-                .compareTo(volumeOfT1OnExB.divide(volumeOfT0OnExB, RoundingMode.HALF_DOWN)) >= 0) {
+        } else if ((volumeOfT1OnExA.divide(volumeOfT0OnExA, mathContextDown))
+                .compareTo(volumeOfT1OnExB.divide(volumeOfT0OnExB, mathContextDown)) >= 0) {
             return result;
         }
 
@@ -474,7 +507,7 @@ public class ArbitrageSystem {
         // if Step 3 else (Step 4 & Step 5)
         if (denominator.compareTo(val0) == 0) {
             BigDecimal B1 = (volumeOfT0OnExA.multiply(volumeOfT1OnExB)).subtract(volumeOfT0OnExB.multiply(volumeOfT1OnExA));
-            B1 = B1.divide(_S_1A1B_, RoundingMode.HALF_EVEN);
+            B1 = B1.divide(_S_1A1B_, mathContextEven);
 
             if ((B1.compareTo(val0) <= 0) || (B1.compareTo(volumeOfT0OnExA) >= 0)) {
                 return result;
@@ -484,12 +517,12 @@ public class ArbitrageSystem {
         } else {
             BigDecimal numeratorLeft = _S_1A1B_.multiply(volumeOfT0OnExA.multiply(volumeOfT0OnExB));
             BigDecimal numeratorRight = volumeOfT0OnExA.add(volumeOfT0OnExB);
-            numeratorRight = numeratorRight.multiply((_0A_X_1A_.multiply(_0B_X_1B_)).sqrt(new MathContext(18)));
+            numeratorRight = numeratorRight.multiply((_0A_X_1A_.multiply(_0B_X_1B_)).sqrt(mathContextEven));
 
             B11 = numeratorLeft.add(numeratorRight);
             B12 = numeratorLeft.subtract(numeratorRight);
-            B11 = B11.divide(denominator, RoundingMode.HALF_EVEN);
-            B12 = B12.divide(denominator, RoundingMode.HALF_EVEN);
+            B11 = B11.divide(denominator, mathContextEven);
+            B12 = B12.divide(denominator, mathContextEven);
             boolean a = (B11.compareTo(val0) > 0) && (B11.compareTo(volumeOfT0OnExA) < 0),
                     b = (B12.compareTo(val0) > 0) && (B12.compareTo(volumeOfT0OnExA) < 0);
 
@@ -506,17 +539,17 @@ public class ArbitrageSystem {
 
         // Step 6
         if (singleBorrowMode) {
-            BigDecimal P = (volumeOfT1OnExB.multiply(result[1]).divide(volumeOfT0OnExB.add(result[1]), RoundingMode.HALF_EVEN))
-                    .subtract(volumeOfT1OnExA.multiply(result[1]).divide(volumeOfT0OnExA.subtract(result[1]), RoundingMode.HALF_EVEN));
+            BigDecimal P = (volumeOfT1OnExB.multiply(result[1]).divide(volumeOfT0OnExB.add(result[1]), mathContextEven))
+                    .subtract(volumeOfT1OnExA.multiply(result[1]).divide(volumeOfT0OnExA.subtract(result[1]), mathContextEven));
 
             if ((P.compareTo(val0) > 0) && (P.compareTo(volumeOfT1OnExB) < 0)) {
                 result[0] = P;
             }
         } else {
-            BigDecimal P1 = (volumeOfT1OnExB.multiply(B11).divide(volumeOfT0OnExB.add(B11), RoundingMode.HALF_EVEN))
-                    .subtract(volumeOfT1OnExA.multiply(B11).divide(volumeOfT0OnExA.subtract(B11), RoundingMode.HALF_EVEN));
-            BigDecimal P2 = (volumeOfT1OnExB.multiply(B12).divide(volumeOfT0OnExB.add(B12), RoundingMode.HALF_EVEN))
-                    .subtract(volumeOfT1OnExA.multiply(B12).divide(volumeOfT0OnExA.subtract(B12), RoundingMode.HALF_EVEN));
+            BigDecimal P1 = (volumeOfT1OnExB.multiply(B11).divide(volumeOfT0OnExB.add(B11), mathContextEven))
+                    .subtract(volumeOfT1OnExA.multiply(B11).divide(volumeOfT0OnExA.subtract(B11), mathContextEven));
+            BigDecimal P2 = (volumeOfT1OnExB.multiply(B12).divide(volumeOfT0OnExB.add(B12), mathContextEven))
+                    .subtract(volumeOfT1OnExA.multiply(B12).divide(volumeOfT0OnExA.subtract(B12), mathContextEven));
 
             if (P1.compareTo(val0) > 0 && P1.compareTo(volumeOfT1OnExB) < 0) {
                 result[0] = P1;
@@ -548,29 +581,106 @@ public class ArbitrageSystem {
 
         BigDecimal[] retVal = new BigDecimal[2];
 
-        if (!(volumeOfT1OnExA.divide(volumeOfT0OnExA, RoundingMode.HALF_DOWN).compareTo(volumeOfT1OnExB.divide(volumeOfT0OnExB, RoundingMode.HALF_DOWN)) >= 0)) {
+        if (!(volumeOfT1OnExA.divide(volumeOfT0OnExA, mathContextDown).compareTo(volumeOfT1OnExB.divide(volumeOfT0OnExB, mathContextDown)) >= 0)) {
             throw new Exception("Price on Token 0 on Exchange A must be more or equal to that on the Exchange B");
         }
-
-        MathContext mathContext = new MathContext(10);
 
         BigDecimal _0A_X_1B_ = volumeOfT0OnExA.multiply(volumeOfT1OnExB);
         BigDecimal _0B_X_1A_ = volumeOfT0OnExB.multiply(volumeOfT1OnExA);
 
-        BigDecimal sellAmount = _0A_X_1B_.multiply(_0B_X_1A_).sqrt(mathContext);
+        BigDecimal sellAmount = _0A_X_1B_.multiply(_0B_X_1A_).sqrt(mathContextEven);
         sellAmount = sellAmount.subtract(_0A_X_1B_);
-        sellAmount = sellAmount.divide(volumeOfT1OnExA.add(volumeOfT1OnExB), RoundingMode.HALF_DOWN);
+        sellAmount = sellAmount.divide(volumeOfT1OnExA.add(volumeOfT1OnExB), mathContextDown);
 
         retVal[1] = sellAmount;
 
         BigDecimal temp;
         BigDecimal maxPossibleProfit = _0B_X_1A_.multiply(sellAmount);
         temp = _0A_X_1B_.add(volumeOfT1OnExB.multiply(sellAmount)).add(volumeOfT1OnExA.multiply(sellAmount));
-        maxPossibleProfit = (maxPossibleProfit.divide(temp, RoundingMode.HALF_DOWN)).subtract(sellAmount);
+        maxPossibleProfit = (maxPossibleProfit.divide(temp, mathContextDown)).subtract(sellAmount);
 
         retVal[0] = maxPossibleProfit;
 
         return retVal;
+    }
+
+    private boolean hasNoPendingTransactions() {
+        try {
+            BatchRequest batchRequest = web3j.newBatch();
+            batchRequest.add(web3j.ethGetTransactionCount(credentials.getAddress(), DefaultBlockParameterName.LATEST))
+                    .add(web3j.ethGetTransactionCount(credentials.getAddress(), DefaultBlockParameterName.PENDING));
+            List<?> responses = batchRequest.send().getResponses();
+            BigInteger nonceComplete = null, noncePending = null;
+            Object object = responses.get(0);
+            if (object instanceof EthGetTransactionCount) {
+                nonceComplete = ((EthGetTransactionCount) object).getTransactionCount();
+            }
+            object = responses.get(1);
+            if (object instanceof EthGetTransactionCount) {
+                noncePending = ((EthGetTransactionCount) object).getTransactionCount();
+            }
+
+            return noncePending != null && nonceComplete != null && noncePending.compareTo(nonceComplete) == 0;
+        } catch (Exception e) {
+            e.printStackTrace(MainClass.logPrintStream);
+            return false;
+        }
+    }
+
+    private void performArbitrage() {
+        BigInteger gasPrice = null;
+        if (allAnalizedPairData.size() != 0) {
+            try {
+                gasPrice = web3j.ethGasPrice().send().getGasPrice();
+                maxGasFees = new BigDecimal(gasLimit.multiply(gasPrice)).divide(new BigDecimal("1000000000000000000"), mathContextUp);
+            } catch (IOException e) {
+                e.printStackTrace(MainClass.logPrintStream);
+                return;
+            }
+        }
+
+        int pendingTransactionCount = 0;
+        for (AnalizedPairData analizedPairData : allAnalizedPairData) {
+            if (pendingTransactionCount >= maxPendingTrxAllowed) {
+                break;
+            }
+
+            if (analizedPairData.maxProfitInETH.compareTo(maxGasFees) > 0) {
+
+                String encodedFunction = FunctionEncoder.encode(new Function(
+                        "performArbitrage",
+                        Arrays.asList(
+                                new Address(analizedPairData.borrowToken),
+                                new Address(analizedPairData.repayToken),
+                                new Uint((analizedPairData.maxBorrowAmount.multiply(
+                                        new BigDecimal(analizedPairData.borrowTokenDecimals)
+                                )).toBigInteger()),
+                                new Uint(BigInteger.valueOf(0)),
+                                new Address(analizedPairData.exchangeA.pairId),
+                                new Uint256(BigInteger.valueOf(analizedPairData.exchangeARouterIndex)),
+                                new Uint256(BigInteger.valueOf(analizedPairData.exchangeBRouterIndex))
+                        ),
+                        Collections.singletonList(new TypeReference<Bool>() {
+                        })
+                )); // TODO : Update the smart contract based on this function structure...
+
+                RawTransactionManager rawTransactionManager = new RawTransactionManager(
+                        web3j,
+                        credentials,
+                        ChainIdLong.MAINNET
+                );
+
+                try {
+                    String trxHash = rawTransactionManager.sendTransaction(gasPrice, gasLimit, arbitrageContractAddress, encodedFunction, BigInteger.ZERO)
+                            .getTransactionHash();
+                    sentTransactionHashes.add(trxHash);
+
+                    pendingTransactionCount++;
+                } catch (IOException e) {
+                    e.printStackTrace(MainClass.logPrintStream);
+                }
+            }
+        }
     }
 
     private class CoreSystem implements Runnable {
@@ -581,15 +691,21 @@ public class ArbitrageSystem {
                 mutex.acquire();
             } catch (InterruptedException e) {
                 e.printStackTrace(MainClass.logPrintStream);
+                return;
             }
             try {
                 makeQueriesAndSetData();
+                boolean shouldArbitrage = hasNoPendingTransactions();
                 analizeAllPairsForArbitragePossibility();
                 if (count == 0) {
                     printAllDeterminedData(MainClass.logPrintStream);
                     count = 29;
                 } else {
                     count--;
+                }
+
+                if (shouldArbitrage) {
+                    performArbitrage();
                 }
             } finally {
                 mutex.release();

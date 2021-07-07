@@ -4,19 +4,51 @@ import okhttp3.*;
 import org.json.JSONObject;
 
 import java.io.PrintStream;
+import java.net.Authenticator;
+import java.net.InetSocketAddress;
+import java.net.PasswordAuthentication;
+import java.net.Proxy;
 import java.util.Map;
 
 public class TheGraphQueryMaker {
 
-    private final OkHttpClient okHttpClient = new OkHttpClient();
+    private final OkHttpClient okHttpClient;
     private final String hostUrl;
     private final PrintStream logPrintStream;
     private RequestBody requestBody;
-    public boolean isQueryMakerBad = false;
+    public boolean isQueryMakerBad = false, shouldUseProxy, setCredentials = false;
+    private String[] credentials;
 
-    public TheGraphQueryMaker(String hostUrl, PrintStream logPrintStream) {
+    public TheGraphQueryMaker(String hostUrl, PrintStream logPrintStream, boolean shouldUseProxy, String host, int port, String... credentials) {
         this.hostUrl = hostUrl;
         this.logPrintStream = logPrintStream;
+        this.shouldUseProxy = shouldUseProxy;
+
+        if (shouldUseProxy) {
+            if (credentials.length >= 2) {
+                setCredentials = true;
+                this.credentials = credentials;
+                okHttpClient = new OkHttpClient.Builder().proxy(
+                        new Proxy(Proxy.Type.HTTP, new InetSocketAddress(host, port)))
+                        .proxyAuthenticator((route, response) -> {
+                            String credential = Credentials.basic(credentials[0], credentials[1]);
+                            return response.request().newBuilder()
+                                    .header("Proxy-Authorization", credential)
+                                    .build();
+                        })
+                        .build();
+            } else {
+                okHttpClient = new OkHttpClient.Builder().proxy(
+                        new Proxy(Proxy.Type.HTTP, new InetSocketAddress(host, port)))
+                        .build();
+            }
+        } else {
+            okHttpClient = new OkHttpClient();
+        }
+    }
+
+    public TheGraphQueryMaker(String hostUrl, PrintStream logPrintStream) {
+        this(hostUrl, logPrintStream, false, null, 0);
     }
 
     public String getHostUrl() {
@@ -69,6 +101,23 @@ public class TheGraphQueryMaker {
         if (isQueryMakerBad) {
             return null;
         }
+
+        if (shouldUseProxy && credentials.length >= 2) {
+            Authenticator.setDefault(
+                    new Authenticator() {
+                        @Override
+                        public PasswordAuthentication getPasswordAuthentication() {
+                            return new PasswordAuthentication(credentials[0], credentials[1].toCharArray());
+                        }
+                    }
+            );
+            System.setProperty("http.proxyUser", credentials[0]);
+            System.setProperty("http.proxyPassword", credentials[1]);
+            System.setProperty("jdk.http.auth.tunneling.disabledSchemes", "");
+        } else {
+            Authenticator.setDefault(null);
+        }
+
         Request request = new Request.Builder()
                 .url(hostUrl)
                 .headers(Headers.of(Map.of("content-type", "application/json")))
