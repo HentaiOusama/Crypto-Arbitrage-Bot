@@ -1,13 +1,8 @@
-import SupportingClasses.AnalizedPairData;
-import SupportingClasses.PairData;
-import SupportingClasses.TheGraphQueryMaker;
-import SupportingClasses.TokenIdToPairIdMapper;
+import SupportingClasses.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.web3j.abi.FunctionEncoder;
-import org.web3j.abi.TypeReference;
 import org.web3j.abi.datatypes.Address;
-import org.web3j.abi.datatypes.Bool;
 import org.web3j.abi.datatypes.Function;
 import org.web3j.abi.datatypes.Uint;
 import org.web3j.abi.datatypes.generated.Uint256;
@@ -16,6 +11,7 @@ import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.BatchRequest;
 import org.web3j.protocol.core.DefaultBlockParameterName;
 import org.web3j.protocol.core.methods.response.EthGetTransactionCount;
+import org.web3j.protocol.core.methods.response.TransactionReceipt;
 import org.web3j.protocol.http.HttpService;
 import org.web3j.tx.ChainIdLong;
 import org.web3j.tx.RawTransactionManager;
@@ -47,19 +43,24 @@ public class ArbitrageSystem {
 
     // Manager Variables
     private final ScheduledExecutorService coreSystemExecutorService = Executors.newSingleThreadScheduledExecutor();
+    private final ExecutorService analysisPrinter = Executors.newSingleThreadScheduledExecutor();
+    private volatile boolean isPrintingAnalysis = false;
     public int waitTimeInMillis, count = 29;
     private final ArbitrageTelegramBot arbitrageTelegramBot;
     private final Semaphore mutex = new Semaphore(1);
     private final MathContext mathContextUp = new MathContext(20, RoundingMode.HALF_UP),
             mathContextDown = new MathContext(20, RoundingMode.HALF_DOWN),
             mathContextEven = new MathContext(20, RoundingMode.HALF_EVEN);
+    private final FileOutputStream fileOutputStream;
+    private final PrintStream printStream;
+    private boolean hasPrintedAnything = false;
 
     // Web3 Related Variables
     private volatile Web3j web3j;
 
     // Crypto Related Variables
-    private final ArrayList<String> allExchangesToMonitor = new ArrayList<>();
     private final String arbitrageContractAddress;
+    private final ArrayList<String> allExchangesToMonitor = new ArrayList<>();
     private final ArrayList<TheGraphQueryMaker> allQueryMakers = new ArrayList<>();
     // Mapping TheGraphQueryMaker to a mapping of pairId mapped to PairData 👇 //
     private final HashMap<TheGraphQueryMaker, HashMap<String, PairData>> allNetworkAllPairData = new HashMap<>();
@@ -68,19 +69,21 @@ public class ArbitrageSystem {
     private final BigInteger gasLimit = new BigInteger("400000");
     private volatile BigDecimal maxGasFees = new BigDecimal(gasLimit.multiply(BigInteger.valueOf(20))) // Default Gas Price set to 20 gwei
             .divide(new BigDecimal("1000000000"), mathContextUp);
+    public BigDecimal thresholdLevel;
     private final Credentials credentials;
-    private final int maxPendingTrxAllowed;
-    private final ArrayList<String> sentTransactionHashes = new ArrayList<>(); // TODO : Add thread to make analytics from this ArrayList.
+    public int maxPendingTrxAllowed;
+    private final HashMap<String, ExecutedTransactionData> sentTransactionHashAndData = new HashMap<>();
 
 
     ArbitrageSystem(ArbitrageTelegramBot arbitrageTelegramBot, String arbitrageContractAddress, String privateKey,
-                    int waitTimeInMillis, int maxPendingTrxAllowed, String[] dexTheGraphHostUrls,
-                    String[][][] allPairIdsOnAllNetworks) throws IllegalArgumentException {
+                    int waitTimeInMillis, int maxPendingTrxAllowed, BigDecimal thresholdLevel, String[] dexTheGraphHostUrls,
+                    String[][][] allPairIdsOnAllNetworks) throws IllegalArgumentException, IOException {
         this.arbitrageTelegramBot = arbitrageTelegramBot;
         this.arbitrageContractAddress = arbitrageContractAddress;
         this.waitTimeInMillis = waitTimeInMillis;
         this.maxPendingTrxAllowed = maxPendingTrxAllowed;
         this.allExchangesToMonitor.addAll(Arrays.asList(dexTheGraphHostUrls));
+        this.thresholdLevel = thresholdLevel;
         try {
             credentials = Credentials.create(privateKey);
         } catch (NumberFormatException e) {
@@ -97,6 +100,16 @@ public class ArbitrageSystem {
 
             buildGraphQLQuery(i, theGraphQueryMaker, hashMap, allPairIdsOnAllNetworks[i]);
         }
+
+        File file = new File("ArbitrageResults.csv");
+        if (!file.exists()) {
+            if (!file.createNewFile()) {
+                throw new IOException("Unable to create new file...");
+            }
+        }
+        fileOutputStream = new FileOutputStream(file);
+        printStream = new PrintStream(fileOutputStream);
+        printStream.println("Transaction Hash,Gas Used By Trx.,Profit Generated");
     }
 
     protected void buildGraphQLQuery(int index, TheGraphQueryMaker theGraphQueryMaker, HashMap<String, PairData> hashMap,
@@ -278,7 +291,7 @@ public class ArbitrageSystem {
         }
     }
 
-    public void stopSystem() {
+    public void stopSystem(String chatId) {
         try {
             mutex.acquire();
         } catch (InterruptedException e) {
@@ -286,17 +299,23 @@ public class ArbitrageSystem {
             return;
         }
         try {
-            coreSystemExecutorService.shutdown();
+            coreSystemExecutorService.shutdownNow();
+            getPrintedAnalysisData(chatId, false);
+            printStream.close();
             try {
-                if (!coreSystemExecutorService.awaitTermination(10, TimeUnit.SECONDS) && !coreSystemExecutorService.isShutdown()) {
-                    coreSystemExecutorService.shutdownNow();
+                fileOutputStream.close();
+            } catch (IOException e) {
+                e.printStackTrace(MainClass.logPrintStream);
+            }
+            try {
+                boolean shutdownStatus = coreSystemExecutorService.awaitTermination(7, TimeUnit.SECONDS);
+                if (!shutdownStatus) {
+                    MainClass.logPrintStream.println("Unable to shutdown within 7 seconds");
                 }
             } catch (InterruptedException e) {
                 e.printStackTrace(MainClass.logPrintStream);
-                if (!coreSystemExecutorService.isShutdown()) {
-                    coreSystemExecutorService.shutdownNow();
-                }
             }
+            analysisPrinter.shutdownNow();
             shutdownWeb3j();
         } finally {
             mutex.release();
@@ -645,9 +664,9 @@ public class ArbitrageSystem {
                 break;
             }
 
-            if (analizedPairData.maxProfitInETH.compareTo(maxGasFees) > 0) {
+            if (analizedPairData.maxProfitInETH.compareTo(maxGasFees.multiply(thresholdLevel)) > 0) {
 
-                String encodedFunction = FunctionEncoder.encode(new Function(
+                Function function = new Function(
                         "performArbitrage",
                         Arrays.asList(
                                 new Address(analizedPairData.borrowToken),
@@ -660,10 +679,9 @@ public class ArbitrageSystem {
                                 new Uint256(BigInteger.valueOf(analizedPairData.exchangeARouterIndex)),
                                 new Uint256(BigInteger.valueOf(analizedPairData.exchangeBRouterIndex))
                         ),
-                        Collections.singletonList(new TypeReference<Bool>() {
-                        })
-                )); // TODO : Update the smart contract based on this function structure...
-
+                        Collections.emptyList()
+                );
+                String encodedFunction = FunctionEncoder.encode(function);
                 RawTransactionManager rawTransactionManager = new RawTransactionManager(
                         web3j,
                         credentials,
@@ -671,15 +689,27 @@ public class ArbitrageSystem {
                 );
 
                 try {
+                    rawTransactionManager.sendCall(arbitrageContractAddress, encodedFunction, DefaultBlockParameterName.LATEST);
                     String trxHash = rawTransactionManager.sendTransaction(gasPrice, gasLimit, arbitrageContractAddress, encodedFunction, BigInteger.ZERO)
                             .getTransactionHash();
-                    sentTransactionHashes.add(trxHash);
+                    sentTransactionHashAndData.put(trxHash, new ExecutedTransactionData(
+                            trxHash, encodedFunction, gasPrice, analizedPairData.repayTokenSymbol,
+                            Integer.parseInt(analizedPairData.repayTokenDecimals)));
 
                     pendingTransactionCount++;
                 } catch (IOException e) {
                     e.printStackTrace(MainClass.logPrintStream);
                 }
             }
+        }
+    }
+
+    public void getPrintedAnalysisData(String chatId, boolean shouldSentNotifier) {
+        if (hasPrintedAnything) {
+            printStream.flush();
+            arbitrageTelegramBot.sendFile(chatId, "ArbitrageResults.csv");
+        } else if (shouldSentNotifier) {
+            arbitrageTelegramBot.sendMessage(chatId, "No arbitrage was performed in last 24 Hrs.");
         }
     }
 
@@ -706,6 +736,9 @@ public class ArbitrageSystem {
 
                 if (shouldArbitrage) {
                     performArbitrage();
+                }
+                if (!(sentTransactionHashAndData.isEmpty() || isPrintingAnalysis || analysisPrinter.isShutdown())) {
+                    analysisPrinter.submit(new AnalysisPrinter());
                 }
             } finally {
                 mutex.release();
@@ -835,6 +868,37 @@ public class ArbitrageSystem {
             } else {
                 return null;
             }
+        }
+    }
+
+    private class AnalysisPrinter implements Runnable {
+        @Override
+        public void run() {
+
+            isPrintingAnalysis = true;
+
+            if (!sentTransactionHashAndData.isEmpty()) {
+                Set<String> keys = sentTransactionHashAndData.keySet();
+                for (String hash : keys) {
+                    ExecutedTransactionData executedTransactionData = sentTransactionHashAndData.get(hash);
+
+                    try {
+                        Optional<TransactionReceipt> optional = web3j.ethGetTransactionReceipt(hash).send().getTransactionReceipt();
+
+                        if (optional.isPresent()) {
+                            TransactionReceipt transactionReceipt = optional.get();
+                            String output = executedTransactionData.getPrintableData(transactionReceipt);
+                            printStream.println(output);
+                            sentTransactionHashAndData.remove(hash);
+                            hasPrintedAnything = true;
+                        }
+                    } catch (IOException | IndexOutOfBoundsException e) {
+                        e.printStackTrace(MainClass.logPrintStream);
+                    }
+                }
+            }
+
+            isPrintingAnalysis = false;
         }
     }
 }

@@ -11,9 +11,9 @@ public class AnalizedPairData implements Comparable<AnalizedPairData> {
     public final String pairKeyForMapper;
     public final PairData exchangeA, exchangeB;
     public final String borrowToken, repayToken; // W.r.t. Ex. A
-    private final String borrowTokenSymbol, repayTokenSymbol; // W.r.t. Ex. A
+    public final String borrowTokenSymbol, repayTokenSymbol; // W.r.t. Ex. A
     private final int exchangeAIndex, exchangeBIndex;
-    public final String borrowTokenDecimals;
+    public final String borrowTokenDecimals, repayTokenDecimals;
     public final int exchangeARouterIndex, exchangeBRouterIndex;
 
     public final BigDecimal maxPossibleProfit, maxBorrowAmount, repayTokenDerivedETH, maxProfitInETH;
@@ -33,10 +33,13 @@ public class AnalizedPairData implements Comparable<AnalizedPairData> {
         exchangeBRouterIndex = this.exchangeB.routerIndex;
         if (exchangeA.token0Id.equalsIgnoreCase(borrowToken)) {
             borrowTokenDecimals = exchangeA.token0Decimals;
+            repayTokenDecimals = exchangeA.token1Decimals;
         } else if (exchangeA.token1Id.equalsIgnoreCase(borrowToken)) {
             borrowTokenDecimals = exchangeA.token1Decimals;
+            repayTokenDecimals = exchangeA.token0Decimals;
         } else {
             borrowTokenDecimals = "0";
+            repayTokenDecimals = "0";
         }
         this.maxPossibleProfit = maxPossibleProfit.setScale(8, RoundingMode.HALF_DOWN);
         this.maxBorrowAmount = maxBorrowAmount.setScale(8, RoundingMode.HALF_DOWN);

@@ -39,7 +39,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
     private ArbitrageSystem arbitrageSystem;
     private final ArrayList<String> allAdmins = new ArrayList<>();
     private final ArrayList<String> tempList = new ArrayList<>();
-    private String thresholdPercentage; // TODO : Not yet complete... Need to change this
+    private int thresholdLevel;
     private int pollingInterval, maxPendingTrxAllowed; // Milliseconds, int
 
     public MongoClient mongoClient;
@@ -62,7 +62,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                         mongoClient.close();
                     }
                     if (arbitrageSystem != null) {
-                        arbitrageSystem.stopSystem();
+                        arbitrageSystem.stopSystem(allAdmins.get(0));
                     }
                     MainClass.logPrintStream.println("Shutdown Handler Called...");
                     MainClass.logPrintStream.close();
@@ -80,7 +80,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         Document document = new Document("identifier", "root");
         Document foundDoc = allPairAndTrackersDataCollection.find(document).first();
         assert foundDoc != null;
-        thresholdPercentage = (String) foundDoc.get("thresholdPercentage");
+        thresholdLevel = (int) foundDoc.get("thresholdLevel");
         pollingInterval = (int) foundDoc.get("pollingInterval");
         List<?> list = (List<?>) foundDoc.get("admins");
         shouldRunBot = (boolean) foundDoc.get("shouldRunBot");
@@ -95,6 +95,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         }
     }
 
+    @SuppressWarnings("SpellCheckingInspection")
     private void initializeMongoSetup() {
         ConnectionString connectionString = new ConnectionString(
                 "mongodb+srv://" + System.getenv("mongoID") + ":" +
@@ -114,7 +115,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         Document foundDoc = allPairAndTrackersDataCollection.find(document).first();
         assert foundDoc != null;
 
-        thresholdPercentage = (String) foundDoc.get("thresholdPercentage");
+        thresholdLevel = (int) foundDoc.get("thresholdLevel");
         walletPrivateKey = (String) foundDoc.get("walletPrivateKey");
         arbitrageContractAddress = (String) foundDoc.get("arbitrageContractAddress");
         maxPendingTrxAllowed = (int) foundDoc.get("maxPendingTrxAllowed");
@@ -175,14 +176,14 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
 
         try {
             ArbitrageSystem arbitrageSystem = new ArbitrageSystem(this, arbitrageContractAddress, walletPrivateKey, pollingInterval,
-                    maxPendingTrxAllowed, allTrackerUrls, allPairIdsAndTokenDetails); // TODO: Add values here...
+                    maxPendingTrxAllowed, BigDecimal.valueOf(thresholdLevel), allTrackerUrls, allPairIdsAndTokenDetails);
 
             MainClass.logPrintStream.println("Call to Arbitrage Start System...");
             System.out.println("Call to Arbitrage Start System...");
             arbitrageSystem.startSystem();
             this.arbitrageSystem = arbitrageSystem;
             tempList.clear();
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException | IOException e) {
             e.printStackTrace(MainClass.logPrintStream);
             arbitrageSystem = null;
             stopArbitrageSystem();
@@ -196,7 +197,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         if (arbitrageSystem != null) {
             MainClass.logPrintStream.println("Call to Arbitrage Stop System Method");
             System.out.println("Call to Arbitrage Stop System Method");
-            arbitrageSystem.stopSystem();
+            arbitrageSystem.stopSystem(allAdmins.get(0));
         }
 
         if (shouldRunBot) {
@@ -562,30 +563,32 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 } catch (Exception e) {
                     sendMessage(chatId, "There was an error while turning on the bot...");
                 }
-            } else if (text.toLowerCase().startsWith("setthresholdpercentage")) {
+            } else if (text.toLowerCase().startsWith("setthresholdlevel")) {
                 String[] params = text.trim().split(" ");
                 if (params.length == 2) {
                     try {
-                        BigDecimal decimalValue = new BigDecimal(params[1]);
-                        thresholdPercentage = params[1];
+                        thresholdLevel = Integer.parseInt(params[1]);
+                        if (thresholdLevel < 1) {
+                            sendFile(chatId, "Threshold Level cannot be less than 1");
+                            return;
+                        }
                         Document document = new Document("identifier", "root");
                         Document foundDoc = allPairAndTrackersDataCollection.find(document).first();
                         assert foundDoc != null;
-                        document = new Document("thresholdPercentage", thresholdPercentage);
+                        document = new Document("thresholdLevel", thresholdLevel);
                         Bson updateOperation = new Document("$set", document);
                         allPairAndTrackersDataCollection.updateOne(foundDoc, updateOperation);
 
-//                        TODO : Need to change this to threshold levels...
-//                        if (shouldRunBot) {
-//                            arbitrageSystem.thresholdProfitAmount = decimalValue;
-//                        }
+                        if (shouldRunBot) {
+                            arbitrageSystem.thresholdLevel = new BigDecimal(thresholdLevel);
+                        }
 
                     } catch (NumberFormatException e) {
-                        sendMessage(chatId, "Invalid Format... The decimalValue has to be an integer or a decimal between 0 and 100");
+                        sendMessage(chatId, "Invalid Format... The levelNumber has to be an integer >= 1");
                     }
                 } else {
                     sendMessage(chatId, "Wrong Usage of Command. Correct Format : \n" +
-                            "setThresholdPercentage decimalValue");
+                            "setThresholdLevel levelNumber");
                 }
             } else if (text.toLowerCase().startsWith("setpollinginterval")) {
                 String[] params = text.trim().split(" ");
@@ -635,6 +638,12 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     if (!arbitrageSystem.printAllDeterminedData(chatId)) {
                         sendMessage(chatId, "Error while generating data...");
                     }
+                }
+            } else if (text.equalsIgnoreCase("getLast24HrAnalysis")) {
+                if (shouldRunBot) {
+                    arbitrageSystem.getPrintedAnalysisData(chatId, true);
+                } else {
+                    sendMessage(chatId, "This command can only be used when the system is running...");
                 }
             } else if (text.toLowerCase().startsWith("setWalletPrivateKey".toLowerCase())) {
                 String[] params = text.trim().split(" ");
@@ -695,11 +704,12 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                         runBot
                         stopBot
                         restartBot
-                        setThresholdPercentage decimalValue
+                        setThresholdLevel levelNumber
                         addNewPair token0Addy token1Addy
                         removeOldPair token0Addy token1Addy
                         addNewTrackerUrl theGraphUrl
                         getAllPairDetails
+                        getLast24HrAnalysis
                         setWalletPrivateKey privateKey
                         getLogs
                         clearLogs
@@ -711,7 +721,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 sendMessage(chatId, "Such command does not exists. (ノಠ益ಠ)ノ彡┻━┻");
             }
 
-            sendMessage(chatId, "Is Bot Running : " + shouldRunBot + "\nThreshold Percentage : " + thresholdPercentage + "%");
+            sendMessage(chatId, "Is Bot Running : " + shouldRunBot + "\nThreshold Percentage : " + thresholdLevel + "%");
         }
     }
 }
