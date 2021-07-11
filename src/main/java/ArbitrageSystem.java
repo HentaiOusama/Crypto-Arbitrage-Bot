@@ -376,9 +376,10 @@ public class ArbitrageSystem {
                                         
                                         
                     Notes: -
-                    Borrow Token means the token we borrow from Exchange A and sell on Exchange B.
-                    Repay Token means the token we repay to Exchange A that we get from Exchange B.
-                    Max. profit is in terms of repay token.
+                    Borrow Token means the token we borrow from Exchange A and
+                    sell on Exchange B. Repay Token means the token we repay to
+                    Exchange A that we get from Exchange B. Max. profit is in
+                    terms of repay token.
                                         
                                         
                                         

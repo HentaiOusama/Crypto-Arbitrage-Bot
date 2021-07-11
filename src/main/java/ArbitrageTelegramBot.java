@@ -254,7 +254,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
     }
 
     private void addNewPair(String chatId, String text) {
-        String[] params = text.trim().split(" ");
+        String[] params = text.trim().split("[ ]+");
         if (params.length == 3) {
             try {
                 Set<String> oldPairs = arbitrageSystem.getAllUniSwapPairIds();
@@ -333,7 +333,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
     }
 
     private void removeOldPair(String chatId, String text) {
-        String[] params = text.trim().split(" ");
+        String[] params = text.trim().split("[ ]+");
         if (params.length == 3) {
             String token0 = params[1].toLowerCase();
             String token1 = params[2].toLowerCase();
@@ -395,7 +395,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
             getInitializingDataFromMongoDB();
         }
 
-        String[] params = text.trim().split(" ");
+        String[] params = text.trim().split("[ ]+");
         if (params.length == 3) {
             try {
                 Document document = new Document("trackerId", params[1]);
@@ -556,7 +556,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     sendMessage(chatId, "There was an error while turning on the bot...");
                 }
             } else if (text.toLowerCase().startsWith("setthresholdlevel")) {
-                String[] params = text.trim().split(" ");
+                String[] params = text.trim().split("[ ]+");
                 if (params.length == 2) {
                     try {
                         thresholdLevel = Integer.parseInt(params[1]);
@@ -583,7 +583,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                             "setThresholdLevel levelNumber");
                 }
             } else if (text.toLowerCase().startsWith("setpollinginterval")) {
-                String[] params = text.trim().split(" ");
+                String[] params = text.trim().split("[ ]+");
                 if (params.length == 2) {
                     Document document = new Document("identifier", "root");
                     Document foundDoc = allPairAndTrackersDataCollection.find(document).first();
@@ -638,7 +638,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     sendMessage(chatId, "This command can only be used when the system is running...");
                 }
             } else if (text.toLowerCase().startsWith("setWalletPrivateKey".toLowerCase())) {
-                String[] params = text.trim().split(" ");
+                String[] params = text.trim().split("[ ]+");
                 if (params.length == 2) {
                     try {
                         Credentials credentials = Credentials.create(params[1]);
@@ -693,19 +693,31 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 };
             } else if (text.equalsIgnoreCase("Commands")) {
                 sendMessage(chatId, """
-                        runBot
-                        stopBot
-                        restartBot
-                        setThresholdLevel levelNumber
-                        addNewPair token0Addy token1Addy
-                        removeOldPair token0Addy token1Addy
-                        addNewTrackerUrl theGraphUrl
-                        getAllPairDetails
-                        getLast24HrAnalysis
-                        setWalletPrivateKey privateKey
-                        getLogs
-                        clearLogs
-                        Commands
+                        01) runBot
+                                                
+                        02) stopBot
+                                                
+                        03) restartBot
+                                                
+                        04) setThresholdLevel   levelNumber
+                                                
+                        05) addNewPair   token0Addy   token1Addy
+                                                
+                        06) removeOldPair   token0Addy   token1Addy
+                                                
+                        07) addNewTrackerUrl   theGraphUrl
+                                                
+                        08) getAllPairDetails
+                                                
+                        09) getLast24HrAnalysis
+                                                
+                        10) setWalletPrivateKey   privateKey
+                                                
+                        11) getLogs
+                                                
+                        12) clearLogs
+                                                
+                        13) Commands
                                                 
                                                 
                         (For any command, 1st word is the actual command name and it may be followed by 0 or more parameters that must be replaced by the actual values.)""");
