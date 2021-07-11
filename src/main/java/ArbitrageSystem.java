@@ -10,6 +10,8 @@ import org.web3j.crypto.Credentials;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.BatchRequest;
 import org.web3j.protocol.core.DefaultBlockParameterName;
+import org.web3j.protocol.core.methods.request.Transaction;
+import org.web3j.protocol.core.methods.response.EthCall;
 import org.web3j.protocol.core.methods.response.EthGetTransactionCount;
 import org.web3j.protocol.core.methods.response.TransactionReceipt;
 import org.web3j.protocol.http.HttpService;
@@ -54,6 +56,7 @@ public class ArbitrageSystem {
     private final FileOutputStream fileOutputStream;
     private final PrintStream printStream;
     private boolean hasPrintedAnything = false;
+    public volatile BigDecimal thresholdEthAmount;
 
     // Web3 Related Variables
     private volatile Web3j web3j;
@@ -376,10 +379,10 @@ public class ArbitrageSystem {
                                         
                                         
                     Notes: -
-                    Borrow Token means the token we borrow from Exchange A and
-                    sell on Exchange B. Repay Token means the token we repay to
-                    Exchange A that we get from Exchange B. Max. profit is in
-                    terms of repay token.
+                    Borrow Token means the token we borrow from Exchange A
+                    and sell on Exchange B. Repay Token means the token we
+                    repay to Exchange A that we get from Exchange B.
+                    Max. Profit is in terms of repay token.
                                         
                                         
                                         
@@ -665,7 +668,8 @@ public class ArbitrageSystem {
                 break;
             }
 
-            if (analizedPairData.maxProfitInETH.compareTo(maxGasFees.multiply(thresholdLevel)) > 0) {
+            thresholdEthAmount = maxGasFees.multiply(thresholdLevel);
+            if (analizedPairData.maxProfitInETH.compareTo(thresholdEthAmount) > 0) {
 
                 Function function = new Function(
                         "startArbitrage",
@@ -673,7 +677,7 @@ public class ArbitrageSystem {
                                 new Address(analizedPairData.borrowToken),
                                 new Address(analizedPairData.repayToken),
                                 new Uint((analizedPairData.maxBorrowAmount.multiply(
-                                        new BigDecimal(analizedPairData.borrowTokenDecimals)
+                                        BigDecimal.TEN.pow(Integer.parseInt(analizedPairData.borrowTokenDecimals))
                                 )).toBigInteger()),
                                 new Uint(BigInteger.valueOf(0)),
                                 new Address(analizedPairData.exchangeA.pairId),
@@ -690,7 +694,11 @@ public class ArbitrageSystem {
                 );
 
                 try {
-                    rawTransactionManager.sendCall(arbitrageContractAddress, encodedFunction, DefaultBlockParameterName.LATEST);
+                    EthCall ethCall = web3j.ethCall(Transaction.createEthCallTransaction(credentials.getAddress(), arbitrageContractAddress, encodedFunction),
+                            DefaultBlockParameterName.LATEST).send();
+                    if (ethCall.isReverted()) {
+                        throw new IOException("Reverted... Function : " + encodedFunction + "\nReason : " + ethCall.getRevertReason());
+                    }
                     String trxHash = rawTransactionManager.sendTransaction(gasPrice, gasLimit, arbitrageContractAddress, encodedFunction, BigInteger.ZERO)
                             .getTransactionHash();
                     sentTransactionHashAndData.put(trxHash, new ExecutedTransactionData(

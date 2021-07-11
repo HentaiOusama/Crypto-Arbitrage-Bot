@@ -65,6 +65,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                         arbitrageSystem.stopSystem(allAdmins.toArray(String[]::new));
                     }
                     MainClass.logPrintStream.println("Shutdown Handler Called...");
+                    sendLogs(allAdmins.get(0));
                     MainClass.logPrintStream.close();
                     MainClass.fileOutputStream.close();
                 } catch (IOException e) {
@@ -249,6 +250,9 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
     }
 
     private void sendLogs(String chatId) {
+        if (arbitrageSystem != null && shouldRunBot) {
+            MainClass.logPrintStream.println("Threshold Eth Amount : " + arbitrageSystem.thresholdEthAmount);
+        }
         MainClass.logPrintStream.flush();
         sendFile("OutputLogs.txt", chatId);
     }
@@ -267,7 +271,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 String decimal1 = result.remove(0);
                 String msg = "Token0Id: " + token0Id + ", Token0Symbol: " + token0Symbol +
                         ", Token1Id: " + token1Id + ", Token1Symbol: " + token1Symbol +
-                        ", Token0Decimals : " + decimal0 + "Token1Decimals" + decimal1 +
+                        ", Token0Decimals : " + decimal0 + ", Token1Decimals" + decimal1 +
                         "\n\nAll PairIds:-\n" + result;
 
                 String firstId = result.get(0);
@@ -316,7 +320,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 }
 
                 sendMessage(chatId, "Operation Successful. Following data was stored in the database:- \n\n" +
-                        msg + "\n\n(Once you have added all new Pairs, please stop and restart the bot for changes to take effect.)");
+                        msg + "\n\n(Once you have added all new Pairs, please restart the bot for changes to take effect.)");
 
             } catch (Exception e) {
                 sendMessage(chatId, """
@@ -602,6 +606,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                         if (shouldRunBot) {
                             arbitrageSystem.waitTimeInMillis = interval;
                         }
+                        sendMessage(chatId, "Operation Successful...");
                     } catch (NumberFormatException e) {
                         sendMessage(chatId, "Invalid time. timeInMillis has to be an Integer.");
                     }
