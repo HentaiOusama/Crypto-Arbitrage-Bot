@@ -62,7 +62,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                         mongoClient.close();
                     }
                     if (arbitrageSystem != null) {
-                        arbitrageSystem.stopSystem(allAdmins.get(0));
+                        arbitrageSystem.stopSystem(allAdmins.toArray(String[]::new));
                     }
                     MainClass.logPrintStream.println("Shutdown Handler Called...");
                     MainClass.logPrintStream.close();
@@ -197,7 +197,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         if (arbitrageSystem != null) {
             MainClass.logPrintStream.println("Call to Arbitrage Stop System Method");
             System.out.println("Call to Arbitrage Stop System Method");
-            arbitrageSystem.stopSystem(allAdmins.get(0));
+            arbitrageSystem.stopSystem(allAdmins.toArray(String[]::new));
         }
 
         if (shouldRunBot) {
@@ -234,31 +234,23 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         }
     }
 
-    public void sendFile(String chatId, String fileName) {
-        SendDocument sendDocument = new SendDocument();
-        sendDocument.setChatId(chatId);
-        sendDocument.setDocument(new InputFile().setMedia(new File(fileName)));
-        sendDocument.setCaption(fileName);
-        try {
-            execute(sendDocument);
-        } catch (Exception e) {
-            e.printStackTrace(MainClass.logPrintStream);
+    public void sendFile(String fileName, String... chatId) {
+        for (String id : chatId) {
+            SendDocument sendDocument = new SendDocument();
+            sendDocument.setChatId(id);
+            sendDocument.setDocument(new InputFile().setMedia(new File(fileName)));
+            sendDocument.setCaption(fileName);
+            try {
+                execute(sendDocument);
+            } catch (Exception e) {
+                e.printStackTrace(MainClass.logPrintStream);
+            }
         }
     }
 
     private void sendLogs(String chatId) {
-        SendDocument sendDocument = new SendDocument();
-        sendDocument.setChatId(chatId);
         MainClass.logPrintStream.flush();
-        sendDocument.setDocument(new InputFile().setMedia(new File("OutputLogs.txt")));
-        sendDocument.setCaption("Latest Logs");
-        try {
-            execute(sendDocument);
-        } catch (Exception e) {
-            sendMessage(chatId, "Error in sending Logs\n" + Arrays.toString(e.getStackTrace()));
-            e.printStackTrace(MainClass.logPrintStream);
-            e.printStackTrace();
-        }
+        sendFile("OutputLogs.txt", chatId);
     }
 
     private void addNewPair(String chatId, String text) {
@@ -569,7 +561,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     try {
                         thresholdLevel = Integer.parseInt(params[1]);
                         if (thresholdLevel < 1) {
-                            sendFile(chatId, "Threshold Level cannot be less than 1");
+                            sendMessage(chatId, "Threshold Level cannot be less than 1");
                             return;
                         }
                         Document document = new Document("identifier", "root");
@@ -641,7 +633,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 }
             } else if (text.equalsIgnoreCase("getLast24HrAnalysis")) {
                 if (shouldRunBot) {
-                    arbitrageSystem.getPrintedAnalysisData(chatId, true);
+                    arbitrageSystem.getPrintedAnalysisData(true, chatId);
                 } else {
                     sendMessage(chatId, "This command can only be used when the system is running...");
                 }

@@ -291,7 +291,7 @@ public class ArbitrageSystem {
         }
     }
 
-    public void stopSystem(String chatId) {
+    public void stopSystem(String... chatId) {
         try {
             mutex.acquire();
         } catch (InterruptedException e) {
@@ -300,7 +300,7 @@ public class ArbitrageSystem {
         }
         try {
             coreSystemExecutorService.shutdownNow();
-            getPrintedAnalysisData(chatId, false);
+            getPrintedAnalysisData(false, chatId);
             printStream.close();
             try {
                 fileOutputStream.close();
@@ -399,7 +399,7 @@ public class ArbitrageSystem {
             printAllDeterminedData(printStream);
             printStream.close();
             fileOutputStream.close();
-            arbitrageTelegramBot.sendFile(chatId, "GatheredData.csv");
+            arbitrageTelegramBot.sendFile("GatheredData.csv", chatId);
             return true;
         } catch (IOException e) {
             e.printStackTrace(MainClass.logPrintStream);
@@ -704,12 +704,14 @@ public class ArbitrageSystem {
         }
     }
 
-    public void getPrintedAnalysisData(String chatId, boolean shouldSentNotifier) {
+    public void getPrintedAnalysisData(boolean shouldSentNotifier, String... chatId) {
         if (hasPrintedAnything) {
             printStream.flush();
-            arbitrageTelegramBot.sendFile(chatId, "ArbitrageResults.csv");
+            arbitrageTelegramBot.sendFile("ArbitrageResults.csv", chatId);
         } else if (shouldSentNotifier) {
-            arbitrageTelegramBot.sendMessage(chatId, "No arbitrage was performed in last 24 Hrs.");
+            for (String id : chatId) {
+                arbitrageTelegramBot.sendMessage(id, "No arbitrage was performed in last 24 Hrs.");
+            }
         }
     }
 
