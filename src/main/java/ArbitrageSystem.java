@@ -667,7 +667,7 @@ public class ArbitrageSystem {
             if (analizedPairData.maxProfitInETH.compareTo(maxGasFees.multiply(thresholdLevel)) > 0) {
 
                 Function function = new Function(
-                        "performArbitrage",
+                        "startArbitrage",
                         Arrays.asList(
                                 new Address(analizedPairData.borrowToken),
                                 new Address(analizedPairData.repayToken),
