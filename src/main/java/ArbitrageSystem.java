@@ -50,9 +50,6 @@ public class ArbitrageSystem {
     public int waitTimeInMillis, count = 29;
     private final ArbitrageTelegramBot arbitrageTelegramBot;
     private final Semaphore mutex = new Semaphore(1);
-    private final MathContext mathContextUp = new MathContext(20, RoundingMode.HALF_UP),
-            mathContextDown = new MathContext(20, RoundingMode.HALF_DOWN),
-            mathContextEven = new MathContext(20, RoundingMode.HALF_EVEN);
     private final FileOutputStream fileOutputStream;
     private final PrintStream printStream;
     private boolean hasPrintedAnything = false;
@@ -60,6 +57,15 @@ public class ArbitrageSystem {
 
     // Web3 Related Variables
     private volatile Web3j web3j;
+
+    // Calculation Constants
+    private final BigDecimal Z_p_997 = BigDecimal.valueOf(0.997);
+    private final BigDecimal Z_p_997_sq = Z_p_997.pow(2);
+    private final BigDecimal One_m_Z_p_997_sq = BigDecimal.ONE.subtract(Z_p_997_sq);
+    private final BigDecimal val0 = BigDecimal.ZERO;
+    private final MathContext mathContextUp = new MathContext(20, RoundingMode.HALF_UP),
+            mathContextDown = new MathContext(20, RoundingMode.HALF_DOWN),
+            mathContextEven = new MathContext(20, RoundingMode.HALF_EVEN);
 
     // Crypto Related Variables
     private final String arbitrageContractAddress;
@@ -452,7 +458,7 @@ public class ArbitrageSystem {
 
             // borrowMode 1 => Token 0 Static Price <= 1 & borrowMode 2 => Token 0 Static Price > 1
             int borrowMode = (allNetworkAllPairData.get(allQueryMakers.get(0)).get(allPairIdsForSpecificPair.get(0))
-                    .getToken0StaticPrice().compareTo(BigDecimal.valueOf(1)) <= 0) ? 1 : 2;
+                    .getToken0StaticPrice().compareTo(BigDecimal.ONE) <= 0) ? 1 : 2;
 
             executorCompletionService.submit(new PairAnalizer(borrowMode, allPairIdsForSpecificPair));
             jobCount++;
@@ -471,7 +477,7 @@ public class ArbitrageSystem {
 
         pairAnalysingExecutorService.shutdown();
         try {
-            if (!pairAnalysingExecutorService.awaitTermination(5, TimeUnit.SECONDS) && !pairAnalysingExecutorService.isShutdown()) {
+            if (!pairAnalysingExecutorService.awaitTermination(2, TimeUnit.SECONDS) && !pairAnalysingExecutorService.isShutdown()) {
                 pairAnalysingExecutorService.shutdownNow();
             }
         } catch (InterruptedException e) {
@@ -499,8 +505,6 @@ public class ArbitrageSystem {
          * But, this procedure cannot be actually used for flash loans.
          * */
 
-        final BigDecimal val0 = BigDecimal.valueOf(0);
-
         /*
          * Holders (Initialized to 0)
          * Index 0 => Profit
@@ -521,16 +525,19 @@ public class ArbitrageSystem {
         BigDecimal _0B_X_1B_ = volumeOfT0OnExB.multiply(volumeOfT1OnExB);
         BigDecimal _0A_X_1A_ = volumeOfT0OnExA.multiply(volumeOfT1OnExA);
         BigDecimal denominator = _0B_X_1B_.subtract(_0A_X_1A_);
+        denominator = Z_p_997.multiply(denominator);
 
         // Pre-calculations
-        BigDecimal _S_1A1B_ = volumeOfT1OnExA.add(volumeOfT1OnExB);
         boolean singleBorrowMode = true;
         BigDecimal B11 = null, B12 = null;
 
-        // if Step 3 else (Step 4 & Step 5)
+        // if Step 3 else (Step 4, Step 5 & Step 6)
         if (denominator.compareTo(val0) == 0) {
-            BigDecimal B1 = (volumeOfT0OnExA.multiply(volumeOfT1OnExB)).subtract(volumeOfT0OnExB.multiply(volumeOfT1OnExA));
-            B1 = B1.divide(_S_1A1B_, mathContextEven);
+            BigDecimal B1 = (volumeOfT0OnExA.multiply(volumeOfT1OnExB).multiply(Z_p_997_sq))
+                    .subtract(volumeOfT0OnExB.multiply(volumeOfT1OnExA));
+            BigDecimal den = (Z_p_997_sq.multiply(volumeOfT1OnExA)).add(Z_p_997.multiply(volumeOfT1OnExB));
+            den = den.multiply(BigDecimal.valueOf(2));
+            B1 = B1.divide(den, mathContextEven);
 
             if ((B1.compareTo(val0) <= 0) || (B1.compareTo(volumeOfT0OnExA) >= 0)) {
                 return result;
@@ -538,12 +545,23 @@ public class ArbitrageSystem {
                 result[1] = B1;
             }
         } else {
-            BigDecimal numeratorLeft = _S_1A1B_.multiply(volumeOfT0OnExA.multiply(volumeOfT0OnExB));
-            BigDecimal numeratorRight = volumeOfT0OnExA.add(volumeOfT0OnExB);
-            numeratorRight = numeratorRight.multiply((_0A_X_1A_.multiply(_0B_X_1B_)).sqrt(mathContextEven));
+            BigDecimal numeratorLeft = ((Z_p_997.multiply(volumeOfT1OnExA)).add(volumeOfT1OnExB))
+                    .multiply(volumeOfT0OnExA.multiply(volumeOfT0OnExB));
 
-            B11 = numeratorLeft.add(numeratorRight);
-            B12 = numeratorLeft.subtract(numeratorRight);
+            BigDecimal discriminant = ((Z_p_997.multiply(volumeOfT0OnExA)).add(volumeOfT0OnExB)).pow(2);
+            discriminant = discriminant.multiply(_0A_X_1A_).multiply(_0B_X_1B_);
+            BigDecimal temp = (volumeOfT0OnExA.multiply(volumeOfT0OnExB)).pow(2);
+            temp = temp.multiply((volumeOfT1OnExB.pow(2)).subtract(volumeOfT1OnExA.pow(2)));
+            temp = temp.multiply(One_m_Z_p_997_sq);
+            discriminant = (discriminant.add(temp)).sqrt(mathContextEven);
+
+            // Complex roots => Return 0
+            if (discriminant.compareTo(val0) < 0) {
+                return result;
+            }
+
+            B11 = numeratorLeft.add(discriminant);
+            B12 = numeratorLeft.subtract(discriminant);
             B11 = B11.divide(denominator, mathContextEven);
             B12 = B12.divide(denominator, mathContextEven);
             boolean a = (B11.compareTo(val0) > 0) && (B11.compareTo(volumeOfT0OnExA) < 0),
@@ -562,17 +580,16 @@ public class ArbitrageSystem {
 
         // Step 6
         if (singleBorrowMode) {
-            BigDecimal P = (volumeOfT1OnExB.multiply(result[1]).divide(volumeOfT0OnExB.add(result[1]), mathContextEven))
-                    .subtract(volumeOfT1OnExA.multiply(result[1]).divide(volumeOfT0OnExA.subtract(result[1]), mathContextEven));
+            BigDecimal P = calculateProfit(volumeOfT0OnExA, volumeOfT1OnExA, volumeOfT0OnExB, volumeOfT1OnExB, result[1]);
 
             if ((P.compareTo(val0) > 0) && (P.compareTo(volumeOfT1OnExB) < 0)) {
                 result[0] = P;
+            } else {
+                result[1] = val0;
             }
         } else {
-            BigDecimal P1 = (volumeOfT1OnExB.multiply(B11).divide(volumeOfT0OnExB.add(B11), mathContextEven))
-                    .subtract(volumeOfT1OnExA.multiply(B11).divide(volumeOfT0OnExA.subtract(B11), mathContextEven));
-            BigDecimal P2 = (volumeOfT1OnExB.multiply(B12).divide(volumeOfT0OnExB.add(B12), mathContextEven))
-                    .subtract(volumeOfT1OnExA.multiply(B12).divide(volumeOfT0OnExA.subtract(B12), mathContextEven));
+            BigDecimal P1 = calculateProfit(volumeOfT0OnExA, volumeOfT1OnExA, volumeOfT0OnExB, volumeOfT1OnExB, B11);
+            BigDecimal P2 = calculateProfit(volumeOfT0OnExA, volumeOfT1OnExA, volumeOfT0OnExB, volumeOfT1OnExB, B12);
 
             if (P1.compareTo(val0) > 0 && P1.compareTo(volumeOfT1OnExB) < 0) {
                 result[0] = P1;
@@ -588,43 +605,17 @@ public class ArbitrageSystem {
         return result;
     }
 
-    @Deprecated
-    public BigDecimal[] getMaximumPossibleProfitAndSellAmountObsolete(BigDecimal volumeOfT0OnExA, BigDecimal volumeOfT1OnExA,
-                                                                      BigDecimal volumeOfT0OnExB, BigDecimal volumeOfT1OnExB) throws Exception {
+    private BigDecimal calculateProfit(final BigDecimal volumeOfT0OnExA, final BigDecimal volumeOfT1OnExA, final BigDecimal volumeOfT0OnExB,
+                                       final BigDecimal volumeOfT1OnExB, final BigDecimal borrowAmount) {
+        BigDecimal leftTerm = Z_p_997.multiply(volumeOfT1OnExB).multiply(borrowAmount);
+        BigDecimal temp = volumeOfT0OnExB.add(Z_p_997.multiply(borrowAmount));
+        leftTerm = leftTerm.divide(temp, mathContextEven);
 
-        /*
-         * The calculations are based on the following procedure: -
-         * 1) Sell Token 0 on Ex. A
-         * 2) Receive Token 1 from Ex. A
-         * 3) Sell Token 1 on Ex. B
-         * 4) Receive Token 0 from Ex. B
-         *
-         * But, this procedure cannot be actually used for flash loans.
-         * */
+        BigDecimal rightTerm = volumeOfT1OnExA.multiply(borrowAmount);
+        temp = Z_p_997.multiply(volumeOfT0OnExA.subtract(borrowAmount));
+        rightTerm = rightTerm.divide(temp, mathContextEven);
 
-        BigDecimal[] retVal = new BigDecimal[2];
-
-        if (!(volumeOfT1OnExA.divide(volumeOfT0OnExA, mathContextDown).compareTo(volumeOfT1OnExB.divide(volumeOfT0OnExB, mathContextDown)) >= 0)) {
-            throw new Exception("Price on Token 0 on Exchange A must be more or equal to that on the Exchange B");
-        }
-
-        BigDecimal _0A_X_1B_ = volumeOfT0OnExA.multiply(volumeOfT1OnExB);
-        BigDecimal _0B_X_1A_ = volumeOfT0OnExB.multiply(volumeOfT1OnExA);
-
-        BigDecimal sellAmount = _0A_X_1B_.multiply(_0B_X_1A_).sqrt(mathContextEven);
-        sellAmount = sellAmount.subtract(_0A_X_1B_);
-        sellAmount = sellAmount.divide(volumeOfT1OnExA.add(volumeOfT1OnExB), mathContextDown);
-
-        retVal[1] = sellAmount;
-
-        BigDecimal temp;
-        BigDecimal maxPossibleProfit = _0B_X_1A_.multiply(sellAmount);
-        temp = _0A_X_1B_.add(volumeOfT1OnExB.multiply(sellAmount)).add(volumeOfT1OnExA.multiply(sellAmount));
-        maxPossibleProfit = (maxPossibleProfit.divide(temp, mathContextDown)).subtract(sellAmount);
-
-        retVal[0] = maxPossibleProfit;
-
-        return retVal;
+        return leftTerm.subtract(rightTerm);
     }
 
     private boolean hasNoPendingTransactions() {

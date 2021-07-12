@@ -271,7 +271,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 String decimal1 = result.remove(0);
                 String msg = "Token0Id: " + token0Id + ", Token0Symbol: " + token0Symbol +
                         ", Token1Id: " + token1Id + ", Token1Symbol: " + token1Symbol +
-                        ", Token0Decimals : " + decimal0 + ", Token1Decimals" + decimal1 +
+                        ", Token0Decimals : " + decimal0 + ", Token1Decimals : " + decimal1 +
                         "\n\nAll PairIds:-\n" + result;
 
                 String firstId = result.get(0);
