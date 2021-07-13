@@ -30,6 +30,7 @@ import java.util.Set;
  * 1) Environment Var: mongoID - MongoDB ID
  * 2) Environment Var: mongoPass - MongoDB Password
  * 3) Environment Var: ArbitrageBotToken - Telegram Bot Token
+ * 4) Environment Var: HttpsEndpoint - Https Url from node hosting endpoint services such as Infura, QuickNode, etc
  * */
 public class ArbitrageTelegramBot extends TelegramLongPollingBot {
 
@@ -176,8 +177,9 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         }
 
         try {
-            ArbitrageSystem arbitrageSystem = new ArbitrageSystem(this, arbitrageContractAddress, walletPrivateKey, pollingInterval,
-                    maxPendingTrxAllowed, BigDecimal.valueOf(thresholdLevel), allTrackerUrls, allPairIdsAndTokenDetails);
+            ArbitrageSystem arbitrageSystem = new ArbitrageSystem(this, arbitrageContractAddress, walletPrivateKey,
+                    pollingInterval, maxPendingTrxAllowed, BigDecimal.valueOf(thresholdLevel), allTrackerUrls, allPairIdsAndTokenDetails,
+                    System.getenv("HttpsEndpoint"));
 
             MainClass.logPrintStream.println("Call to Arbitrage Start System...");
             System.out.println("Call to Arbitrage Start System...");

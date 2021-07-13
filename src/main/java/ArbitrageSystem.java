@@ -12,10 +12,10 @@ import org.web3j.protocol.core.BatchRequest;
 import org.web3j.protocol.core.DefaultBlockParameterName;
 import org.web3j.protocol.core.methods.request.Transaction;
 import org.web3j.protocol.core.methods.response.EthCall;
+import org.web3j.protocol.core.methods.response.EthGasPrice;
 import org.web3j.protocol.core.methods.response.EthGetTransactionCount;
 import org.web3j.protocol.core.methods.response.TransactionReceipt;
 import org.web3j.protocol.http.HttpService;
-import org.web3j.tx.ChainIdLong;
 import org.web3j.tx.RawTransactionManager;
 
 import java.io.File;
@@ -30,16 +30,13 @@ import java.util.*;
 import java.util.concurrent.*;
 
 /*
- * Requires Environment Variable :-
- * 1. HttpsEndpoint : Https Url from node hosting endpoint services such as Infura, QuickNode, etc
- * -----------------------------------------------------------------------------------------
  *
  * System Assumptions: -
  * (When not explicitly mentioned, or understood, then the following indexes mean 👇)
- * 0 => UniSwap
- * 1 => SushiSwap
- * 2 => DefiSwap
- * ------------------------------------------------------------------------------------------
+ * 0 => UniSwap / PancakeSwap
+ * 1 => Dex Depends upon the selected network
+ * 2 => -------------- || -------------------
+ *
  * */
 public class ArbitrageSystem {
 
@@ -56,9 +53,6 @@ public class ArbitrageSystem {
     public volatile BigDecimal thresholdEthAmount;
     private volatile boolean didPerformArbitrage = false;
 
-    // Web3 Related Variables
-    private volatile Web3j web3j;
-
     // Calculation Constants
     private final BigDecimal Z_p_997 = BigDecimal.valueOf(0.997);
     private final BigDecimal Z_p_997_sq = Z_p_997.pow(2);
@@ -68,7 +62,7 @@ public class ArbitrageSystem {
             mathContextDown = new MathContext(20, RoundingMode.HALF_DOWN),
             mathContextEven = new MathContext(20, RoundingMode.HALF_EVEN);
 
-    // Crypto Related Variables
+    // Crypto-Pair Related Storage Variables
     private final String arbitrageContractAddress;
     private final ArrayList<String> allExchangesToMonitor = new ArrayList<>();
     private final ArrayList<TheGraphQueryMaker> allQueryMakers = new ArrayList<>();
@@ -76,9 +70,15 @@ public class ArbitrageSystem {
     private final HashMap<TheGraphQueryMaker, HashMap<String, PairData>> allNetworkAllPairData = new HashMap<>();
     private final TokenIdToPairIdMapper tokenIdToPairIdMapper = new TokenIdToPairIdMapper();
     private final ArrayList<AnalizedPairData> allAnalizedPairData = new ArrayList<>();
+
+    // Web3 Related Variables
+    private final String web3EndpointUrl;
+    private volatile Web3j web3j;
+    private RawTransactionManager rawTransactionManager;
+    private BigInteger gasPrice = BigInteger.valueOf(20000000000L);  // Default Gas Price set to 20 gwei
     private final BigInteger gasLimit = new BigInteger("400000");
-    private volatile BigDecimal maxGasFees = new BigDecimal(gasLimit.multiply(BigInteger.valueOf(20))) // Default Gas Price set to 20 gwei
-            .divide(new BigDecimal("1000000000"), mathContextUp);
+    private volatile BigDecimal maxGasFees = new BigDecimal(gasLimit.multiply(gasPrice))
+            .divide(new BigDecimal("1000000000000000000"), mathContextUp);
     public BigDecimal thresholdLevel;
     private final Credentials credentials;
     public int maxPendingTrxAllowed;
@@ -87,13 +87,14 @@ public class ArbitrageSystem {
 
     ArbitrageSystem(ArbitrageTelegramBot arbitrageTelegramBot, String arbitrageContractAddress, String privateKey,
                     int waitTimeInMillis, int maxPendingTrxAllowed, BigDecimal thresholdLevel, String[] dexTheGraphHostUrls,
-                    String[][][] allPairIdsOnAllNetworks) throws IllegalArgumentException, IOException {
+                    String[][][] allPairIdsOnAllNetworks, String web3EndpointUrl) throws IllegalArgumentException, IOException {
         this.arbitrageTelegramBot = arbitrageTelegramBot;
         this.arbitrageContractAddress = arbitrageContractAddress;
         this.waitTimeInMillis = waitTimeInMillis;
         this.maxPendingTrxAllowed = maxPendingTrxAllowed;
         this.allExchangesToMonitor.addAll(Arrays.asList(dexTheGraphHostUrls));
         this.thresholdLevel = thresholdLevel;
+        this.web3EndpointUrl = web3EndpointUrl;
         try {
             credentials = Credentials.create(privateKey);
         } catch (NumberFormatException e) {
@@ -285,11 +286,13 @@ public class ArbitrageSystem {
     public void buildWeb3j() {
         shutdownWeb3j();
 
-        web3j = Web3j.build(new HttpService(System.getenv("HttpsEndpoint")));
+        web3j = Web3j.build(new HttpService(web3EndpointUrl));
 
         try {
             MainClass.logPrintStream.println("Web3 Client Version : " + web3j.web3ClientVersion().send().getWeb3ClientVersion());
-        } catch (Exception e) {
+            long chainId = web3j.ethChainId().send().getChainId().longValue();
+            rawTransactionManager = new RawTransactionManager(web3j, credentials, chainId);
+        } catch (IOException e) {
             e.printStackTrace(MainClass.logPrintStream);
         }
     }
@@ -335,87 +338,45 @@ public class ArbitrageSystem {
         System.out.println("Arbitrage System Stopped Running...");
     }
 
-    protected void printAllDeterminedData(PrintStream... printStreams) {
-        for (PrintStream printStream : printStreams) {
-            printStream.println("""
-                    <-----     Printing All Determined Data     ----->
-                                        
-                                        
-                                        
-                    Pair Id,Token 0 Symbol,Token 1 Symbol,Token 0 Volume,Token 1 Volume,Token 0 StaticPrice,Token 1 StaticPrice,Last Update Time,Exchange No.,Network Name
-                    """);
-        }
+    // Tell if (pending nonce == completed nonce) then Get/Set Gas prices
+    private Object[] web3BatchCalls() {
+        Object[] retVal = new Object[]{
+                false,
+                null
+        };
 
-        int hostCounter = 0;
-        for (TheGraphQueryMaker theGraphQueryMaker : allQueryMakers) {
-            hostCounter++;
-            HashMap<String, PairData> currentNetworkPair = allNetworkAllPairData.get(theGraphQueryMaker);
-            Set<String> keys = currentNetworkPair.keySet();
-
-            StringBuilder allPairDataInCSVFormat = new StringBuilder();
-            for (String key : keys) {
-                allPairDataInCSVFormat
-                        .append(currentNetworkPair.get(key))
-                        .append(",")
-                        .append(hostCounter)
-                        .append(",")
-                        .append(theGraphQueryMaker.getHostUrl())
-                        .append("\n");
-            }
-
-            for (PrintStream printStream : printStreams) {
-                printStream.print(allPairDataInCSVFormat);
-                printStream.println("--------,--------,--------,--------,--------,--------,--------,--------,--------");
-            }
-        }
-
-        for (PrintStream printStream : printStreams) {
-            printStream.println("""
-                                        
-                                        
-                    <-----     Trimmed Data After Analysis     ----->
-                                        
-                    ,Borrow Token Symbol,Repay Token Symbol,Exchange A,Exchange B,Max. Borrow Amount,Max. Possible Profit,Max. Profit(in ETH)
-                    """);
-
-            for (AnalizedPairData analizedPairData : allAnalizedPairData) {
-                printStream.println(analizedPairData);
-            }
-
-            printStream.println("""
-                                        
-                                        
-                    Notes: -
-                    Borrow Token means the token we borrow from Exchange A
-                    and sell on Exchange B. Repay Token means the token we
-                    repay to Exchange A that we get from Exchange B.
-                    Max. Profit is in terms of repay token.
-                                        
-                                        
-                                        
-                    <-----     Data Printing Complete     ----->""");
-        }
-    }
-
-    public boolean printAllDeterminedData(String chatId) {
         try {
-            File file = new File("GatheredData.csv");
-            if (!file.exists()) {
-                if (!file.createNewFile()) {
-                    return false;
-                }
+            BatchRequest batchRequest = web3j.newBatch();
+            batchRequest.add(web3j.ethGetTransactionCount(credentials.getAddress(), DefaultBlockParameterName.LATEST))
+                    .add(web3j.ethGetTransactionCount(credentials.getAddress(), DefaultBlockParameterName.PENDING))
+                    .add(web3j.ethGasPrice());
+            List<?> responses = batchRequest.send().getResponses();
+            BigInteger nonceComplete = null, noncePending = null;
+
+            Object object = responses.get(0);
+            if (object instanceof EthGetTransactionCount) {
+                nonceComplete = ((EthGetTransactionCount) object).getTransactionCount();
             }
-            FileOutputStream fileOutputStream = new FileOutputStream("GatheredData.csv");
-            PrintStream printStream = new PrintStream(fileOutputStream);
-            printAllDeterminedData(printStream);
-            printStream.close();
-            fileOutputStream.close();
-            arbitrageTelegramBot.sendFile("GatheredData.csv", chatId);
-            return true;
-        } catch (IOException e) {
+            object = responses.get(1);
+            if (object instanceof EthGetTransactionCount) {
+                noncePending = ((EthGetTransactionCount) object).getTransactionCount();
+            }
+            object = responses.get(2);
+            if (object instanceof EthGasPrice) {
+                gasPrice = ((EthGasPrice) object).getGasPrice();
+                maxGasFees = new BigDecimal(gasLimit.multiply(gasPrice)).divide(new BigDecimal("1000000000000000000"), mathContextUp);
+            }
+            thresholdEthAmount = maxGasFees.multiply(thresholdLevel);
+
+            if (noncePending != null && nonceComplete != null && noncePending.compareTo(nonceComplete) == 0) {
+                retVal[0] = true;
+                retVal[1] = noncePending;
+            }
+        } catch (Exception e) {
             e.printStackTrace(MainClass.logPrintStream);
-            return false;
         }
+
+        return retVal;
     }
 
     private void makeQueriesAndSetData() {
@@ -442,30 +403,7 @@ public class ArbitrageSystem {
         }
     }
 
-    private boolean hasNoPendingTransactions() {
-        try {
-            BatchRequest batchRequest = web3j.newBatch();
-            batchRequest.add(web3j.ethGetTransactionCount(credentials.getAddress(), DefaultBlockParameterName.LATEST))
-                    .add(web3j.ethGetTransactionCount(credentials.getAddress(), DefaultBlockParameterName.PENDING));
-            List<?> responses = batchRequest.send().getResponses();
-            BigInteger nonceComplete = null, noncePending = null;
-            Object object = responses.get(0);
-            if (object instanceof EthGetTransactionCount) {
-                nonceComplete = ((EthGetTransactionCount) object).getTransactionCount();
-            }
-            object = responses.get(1);
-            if (object instanceof EthGetTransactionCount) {
-                noncePending = ((EthGetTransactionCount) object).getTransactionCount();
-            }
-
-            return noncePending != null && nonceComplete != null && noncePending.compareTo(nonceComplete) == 0;
-        } catch (Exception e) {
-            e.printStackTrace(MainClass.logPrintStream);
-            return false;
-        }
-    }
-
-    private void analizeAllPairsForArbitragePossibility() {
+    private void analizeAllPairsAndPerformArbitrage(boolean shouldSendTransactions) {
 
         allAnalizedPairData.clear();
         ExecutorService pairAnalysingExecutorService = Executors.newFixedThreadPool(Math.max(2, Runtime.getRuntime().availableProcessors() - 2));
@@ -488,11 +426,21 @@ public class ArbitrageSystem {
             jobCount++;
         }
 
+        didPerformArbitrage = false;
+        int pendingTransactionCount = 0;
         for (int i = 0; i < jobCount; i++) {
             try {
                 AnalizedPairData analizedPairData = executorCompletionService.take().get();
                 if (analizedPairData != null) {
-                    // TODO : Add arbitrage performer here itself...
+                    if (shouldSendTransactions && (pendingTransactionCount < maxPendingTrxAllowed) &&
+                            (analizedPairData.maxProfitInETH.compareTo(thresholdEthAmount) > 0)) {
+
+                        // Perform Arbitrage if condition checks are satisfied....
+                        if (performArbitrage(analizedPairData)) {
+                            pendingTransactionCount++;
+                        }
+                    }
+
                     allAnalizedPairData.add(analizedPairData);
                 }
             } catch (InterruptedException | ExecutionException e) {
@@ -500,20 +448,50 @@ public class ArbitrageSystem {
             }
         }
 
-        pairAnalysingExecutorService.shutdown();
-        try {
-            if (!pairAnalysingExecutorService.awaitTermination(2, TimeUnit.SECONDS) && !pairAnalysingExecutorService.isShutdown()) {
-                pairAnalysingExecutorService.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            e.printStackTrace(MainClass.logPrintStream);
-            if (!pairAnalysingExecutorService.isShutdown()) {
-                pairAnalysingExecutorService.shutdownNow();
-            }
-        }
-
+        pairAnalysingExecutorService.shutdownNow();
         Collections.sort(allAnalizedPairData);
         Collections.reverse(allAnalizedPairData);
+    }
+
+    private boolean performArbitrage(AnalizedPairData analizedPairData) {
+        Function function = new Function(
+                "startArbitrage",
+                Arrays.asList(
+                        new Address(analizedPairData.borrowToken),
+                        new Address(analizedPairData.repayToken),
+                        new Uint((analizedPairData.maxBorrowAmount.multiply(
+                                BigDecimal.TEN.pow(Integer.parseInt(analizedPairData.borrowTokenDecimals))
+                        )).toBigInteger()),
+                        new Uint(BigInteger.valueOf(0)),
+                        new Address(analizedPairData.exchangeA.pairId),
+                        new Uint256(BigInteger.valueOf(analizedPairData.exchangeARouterIndex)),
+                        new Uint256(BigInteger.valueOf(analizedPairData.exchangeBRouterIndex))
+                ),
+                Collections.emptyList()
+        );
+        String encodedFunction = FunctionEncoder.encode(function);
+
+        try {
+            EthCall ethCall = web3j.ethCall(Transaction.createEthCallTransaction(credentials.getAddress(), arbitrageContractAddress, encodedFunction),
+                    DefaultBlockParameterName.LATEST).send();
+            if (ethCall.isReverted()) {
+                throw new IOException("Reverted... Function : " + encodedFunction + "\nReason : " + ethCall.getRevertReason());
+            } else {
+                MainClass.logPrintStream.println("Eth Call Success. Value : " + ethCall.getValue());
+            }
+            String trxHash = rawTransactionManager.sendTransaction(gasPrice, gasLimit, arbitrageContractAddress, encodedFunction, BigInteger.ZERO)
+                    .getTransactionHash();
+            sentTransactionHashAndData.put(trxHash, new ExecutedTransactionData(
+                    trxHash, encodedFunction, gasPrice, analizedPairData.repayTokenSymbol,
+                    Integer.parseInt(analizedPairData.repayTokenDecimals), thresholdEthAmount,
+                    analizedPairData.maxBorrowAmount, analizedPairData.maxProfitInETH));
+
+            didPerformArbitrage = true;
+            return true;
+        } catch (IOException e) {
+            e.printStackTrace(MainClass.logPrintStream);
+            return false;
+        }
     }
 
     public BigDecimal[] getMaximumPossibleProfitAndBorrowAmount(final BigDecimal volumeOfT0OnExA, final BigDecimal volumeOfT1OnExA,
@@ -643,71 +621,86 @@ public class ArbitrageSystem {
         return leftTerm.subtract(rightTerm);
     }
 
-    private void performArbitrage() {
-        didPerformArbitrage = false;
-        BigInteger gasPrice = null;
-        if (allAnalizedPairData.size() != 0) {
-            try {
-                gasPrice = web3j.ethGasPrice().send().getGasPrice();
-                maxGasFees = new BigDecimal(gasLimit.multiply(gasPrice)).divide(new BigDecimal("1000000000000000000"), mathContextUp);
-            } catch (IOException e) {
-                e.printStackTrace(MainClass.logPrintStream);
-                return;
+    protected void printAllDeterminedData(PrintStream... printStreams) {
+        for (PrintStream printStream : printStreams) {
+            printStream.println("""
+                    <-----     Printing All Determined Data     ----->
+                                        
+                                        
+                                        
+                    Pair Id,Token 0 Symbol,Token 1 Symbol,Token 0 Volume,Token 1 Volume,Token 0 StaticPrice,Token 1 StaticPrice,Last Update Time,Token 0 Id,Token 1 Id,Exchange No.,Network Name
+                    """);
+        }
+
+        int hostCounter = 0;
+        for (TheGraphQueryMaker theGraphQueryMaker : allQueryMakers) {
+            hostCounter++;
+            HashMap<String, PairData> currentNetworkPair = allNetworkAllPairData.get(theGraphQueryMaker);
+            Set<String> keys = currentNetworkPair.keySet();
+
+            StringBuilder allPairDataInCSVFormat = new StringBuilder();
+            for (String key : keys) {
+                allPairDataInCSVFormat
+                        .append(currentNetworkPair.get(key))
+                        .append(",")
+                        .append(hostCounter)
+                        .append(",")
+                        .append(theGraphQueryMaker.getHostUrl())
+                        .append("\n");
+            }
+
+            for (PrintStream printStream : printStreams) {
+                printStream.print(allPairDataInCSVFormat);
+                printStream.println("--------,--------,--------,--------,--------,--------,--------,--------,--------");
             }
         }
 
-        int pendingTransactionCount = 0;
-        for (AnalizedPairData analizedPairData : allAnalizedPairData) {
-            if (pendingTransactionCount >= maxPendingTrxAllowed) {
-                break;
+        for (PrintStream printStream : printStreams) {
+            printStream.println("""
+                                        
+                                        
+                    <-----     Trimmed Data After Analysis     ----->
+                                        
+                    ,Borrow Token Symbol,Repay Token Symbol,Exchange A,Exchange B,Max. Borrow Amount,Max. Possible Profit,Max. Profit(in ETH)
+                    """);
+
+            for (AnalizedPairData analizedPairData : allAnalizedPairData) {
+                printStream.println(analizedPairData);
             }
 
-            thresholdEthAmount = maxGasFees.multiply(thresholdLevel);
-            if (analizedPairData.maxProfitInETH.compareTo(thresholdEthAmount) > 0) {
+            printStream.println("""
+                                        
+                                        
+                    Notes: -
+                    Borrow Token means the token we borrow from Exchange A
+                    and sell on Exchange B. Repay Token means the token we
+                    repay to Exchange A that we get from Exchange B.
+                    Max. Profit is in terms of repay token.
+                                        
+                                        
+                                        
+                    <-----     Data Printing Complete     ----->""");
+        }
+    }
 
-                Function function = new Function(
-                        "startArbitrage",
-                        Arrays.asList(
-                                new Address(analizedPairData.borrowToken),
-                                new Address(analizedPairData.repayToken),
-                                new Uint((analizedPairData.maxBorrowAmount.multiply(
-                                        BigDecimal.TEN.pow(Integer.parseInt(analizedPairData.borrowTokenDecimals))
-                                )).toBigInteger()),
-                                new Uint(BigInteger.valueOf(0)),
-                                new Address(analizedPairData.exchangeA.pairId),
-                                new Uint256(BigInteger.valueOf(analizedPairData.exchangeARouterIndex)),
-                                new Uint256(BigInteger.valueOf(analizedPairData.exchangeBRouterIndex))
-                        ),
-                        Collections.emptyList()
-                );
-                String encodedFunction = FunctionEncoder.encode(function);
-                RawTransactionManager rawTransactionManager = new RawTransactionManager(
-                        web3j,
-                        credentials,
-                        ChainIdLong.MAINNET
-                );
-
-                try {
-                    EthCall ethCall = web3j.ethCall(Transaction.createEthCallTransaction(credentials.getAddress(), arbitrageContractAddress, encodedFunction),
-                            DefaultBlockParameterName.LATEST).send();
-                    if (ethCall.isReverted()) {
-                        throw new IOException("Reverted... Function : " + encodedFunction + "\nReason : " + ethCall.getRevertReason());
-                    } else {
-                        MainClass.logPrintStream.println("Eth Call Success. Value : " + ethCall.getValue());
-                    }
-                    String trxHash = rawTransactionManager.sendTransaction(gasPrice, gasLimit, arbitrageContractAddress, encodedFunction, BigInteger.ZERO)
-                            .getTransactionHash();
-                    sentTransactionHashAndData.put(trxHash, new ExecutedTransactionData(
-                            trxHash, encodedFunction, gasPrice, analizedPairData.repayTokenSymbol,
-                            Integer.parseInt(analizedPairData.repayTokenDecimals), thresholdEthAmount,
-                            analizedPairData.maxBorrowAmount, analizedPairData.maxProfitInETH));
-
-                    didPerformArbitrage = true;
-                    pendingTransactionCount++;
-                } catch (IOException e) {
-                    e.printStackTrace(MainClass.logPrintStream);
+    public boolean printAllDeterminedData(String chatId) {
+        try {
+            File file = new File("GatheredData.csv");
+            if (!file.exists()) {
+                if (!file.createNewFile()) {
+                    return false;
                 }
             }
+            FileOutputStream fileOutputStream = new FileOutputStream("GatheredData.csv");
+            PrintStream printStream = new PrintStream(fileOutputStream);
+            printAllDeterminedData(printStream);
+            printStream.close();
+            fileOutputStream.close();
+            arbitrageTelegramBot.sendFile("GatheredData.csv", chatId);
+            return true;
+        } catch (IOException e) {
+            e.printStackTrace(MainClass.logPrintStream);
+            return false;
         }
     }
 
@@ -733,22 +726,18 @@ public class ArbitrageSystem {
                 return;
             }
             try {
-                boolean shouldArbitrage = hasNoPendingTransactions();
+                Object[] web3CallResults = web3BatchCalls();
+                boolean shouldArbitrage = (boolean) web3CallResults[0];
                 long startTime = System.nanoTime();
                 makeQueriesAndSetData();
                 long queryTime = System.nanoTime();
-                analizeAllPairsForArbitragePossibility();
+                analizeAllPairsAndPerformArbitrage(shouldArbitrage);
                 long analysisTime = System.nanoTime();
 
-                if (shouldArbitrage) {
-                    performArbitrage();
-                    long arbitragePerformanceTime = System.nanoTime();
-                    if (didPerformArbitrage) {
-                        MainClass.logPrintStream.println("Time for Querying : " + (queryTime - startTime) +
-                                "\nTime for Analysis : " + (analysisTime - queryTime) + "\nTime for Arbitrage : " +
-                                (arbitragePerformanceTime - analysisTime));
-                        printAllDeterminedData(MainClass.logPrintStream);
-                    }
+                if (didPerformArbitrage) {
+                    MainClass.logPrintStream.println("Time for Querying : " + (queryTime - startTime) +
+                            "\nTime for Analysis & Arbitrage : " + (analysisTime - queryTime));
+                    printAllDeterminedData(MainClass.logPrintStream);
                 }
                 if (!(sentTransactionHashAndData.isEmpty() || isPrintingAnalysis || analysisPrinter.isShutdown())) {
                     analysisPrinter.submit(new AnalysisPrinter());
