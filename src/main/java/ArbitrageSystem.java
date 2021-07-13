@@ -47,13 +47,14 @@ public class ArbitrageSystem {
     private final ScheduledExecutorService coreSystemExecutorService = Executors.newSingleThreadScheduledExecutor();
     private final ExecutorService analysisPrinter = Executors.newSingleThreadScheduledExecutor();
     private volatile boolean isPrintingAnalysis = false;
-    public int waitTimeInMillis, count = 29;
+    public int waitTimeInMillis;
     private final ArbitrageTelegramBot arbitrageTelegramBot;
     private final Semaphore mutex = new Semaphore(1);
     private final FileOutputStream fileOutputStream;
     private final PrintStream printStream;
     private boolean hasPrintedAnything = false;
     public volatile BigDecimal thresholdEthAmount;
+    private volatile boolean didPerformArbitrage = false;
 
     // Web3 Related Variables
     private volatile Web3j web3j;
@@ -118,7 +119,7 @@ public class ArbitrageSystem {
         }
         fileOutputStream = new FileOutputStream(file);
         printStream = new PrintStream(fileOutputStream);
-        printStream.println("Transaction Hash,Gas Used By Trx.,Profit Generated");
+        printStream.println("Transaction Hash,Gas Used By Trx.,Actual Profit Generated,Threshold Eth Amount,Borrow Amount,Expected Profit (Eth)");
     }
 
     protected void buildGraphQLQuery(int index, TheGraphQueryMaker theGraphQueryMaker, HashMap<String, PairData> hashMap,
@@ -441,6 +442,29 @@ public class ArbitrageSystem {
         }
     }
 
+    private boolean hasNoPendingTransactions() {
+        try {
+            BatchRequest batchRequest = web3j.newBatch();
+            batchRequest.add(web3j.ethGetTransactionCount(credentials.getAddress(), DefaultBlockParameterName.LATEST))
+                    .add(web3j.ethGetTransactionCount(credentials.getAddress(), DefaultBlockParameterName.PENDING));
+            List<?> responses = batchRequest.send().getResponses();
+            BigInteger nonceComplete = null, noncePending = null;
+            Object object = responses.get(0);
+            if (object instanceof EthGetTransactionCount) {
+                nonceComplete = ((EthGetTransactionCount) object).getTransactionCount();
+            }
+            object = responses.get(1);
+            if (object instanceof EthGetTransactionCount) {
+                noncePending = ((EthGetTransactionCount) object).getTransactionCount();
+            }
+
+            return noncePending != null && nonceComplete != null && noncePending.compareTo(nonceComplete) == 0;
+        } catch (Exception e) {
+            e.printStackTrace(MainClass.logPrintStream);
+            return false;
+        }
+    }
+
     private void analizeAllPairsForArbitragePossibility() {
 
         allAnalizedPairData.clear();
@@ -468,6 +492,7 @@ public class ArbitrageSystem {
             try {
                 AnalizedPairData analizedPairData = executorCompletionService.take().get();
                 if (analizedPairData != null) {
+                    // TODO : Add arbitrage performer here itself...
                     allAnalizedPairData.add(analizedPairData);
                 }
             } catch (InterruptedException | ExecutionException e) {
@@ -618,30 +643,8 @@ public class ArbitrageSystem {
         return leftTerm.subtract(rightTerm);
     }
 
-    private boolean hasNoPendingTransactions() {
-        try {
-            BatchRequest batchRequest = web3j.newBatch();
-            batchRequest.add(web3j.ethGetTransactionCount(credentials.getAddress(), DefaultBlockParameterName.LATEST))
-                    .add(web3j.ethGetTransactionCount(credentials.getAddress(), DefaultBlockParameterName.PENDING));
-            List<?> responses = batchRequest.send().getResponses();
-            BigInteger nonceComplete = null, noncePending = null;
-            Object object = responses.get(0);
-            if (object instanceof EthGetTransactionCount) {
-                nonceComplete = ((EthGetTransactionCount) object).getTransactionCount();
-            }
-            object = responses.get(1);
-            if (object instanceof EthGetTransactionCount) {
-                noncePending = ((EthGetTransactionCount) object).getTransactionCount();
-            }
-
-            return noncePending != null && nonceComplete != null && noncePending.compareTo(nonceComplete) == 0;
-        } catch (Exception e) {
-            e.printStackTrace(MainClass.logPrintStream);
-            return false;
-        }
-    }
-
     private void performArbitrage() {
+        didPerformArbitrage = false;
         BigInteger gasPrice = null;
         if (allAnalizedPairData.size() != 0) {
             try {
@@ -689,13 +692,17 @@ public class ArbitrageSystem {
                             DefaultBlockParameterName.LATEST).send();
                     if (ethCall.isReverted()) {
                         throw new IOException("Reverted... Function : " + encodedFunction + "\nReason : " + ethCall.getRevertReason());
+                    } else {
+                        MainClass.logPrintStream.println("Eth Call Success. Value : " + ethCall.getValue());
                     }
                     String trxHash = rawTransactionManager.sendTransaction(gasPrice, gasLimit, arbitrageContractAddress, encodedFunction, BigInteger.ZERO)
                             .getTransactionHash();
                     sentTransactionHashAndData.put(trxHash, new ExecutedTransactionData(
                             trxHash, encodedFunction, gasPrice, analizedPairData.repayTokenSymbol,
-                            Integer.parseInt(analizedPairData.repayTokenDecimals)));
+                            Integer.parseInt(analizedPairData.repayTokenDecimals), thresholdEthAmount,
+                            analizedPairData.maxBorrowAmount, analizedPairData.maxProfitInETH));
 
+                    didPerformArbitrage = true;
                     pendingTransactionCount++;
                 } catch (IOException e) {
                     e.printStackTrace(MainClass.logPrintStream);
@@ -726,18 +733,22 @@ public class ArbitrageSystem {
                 return;
             }
             try {
-                makeQueriesAndSetData();
                 boolean shouldArbitrage = hasNoPendingTransactions();
+                long startTime = System.nanoTime();
+                makeQueriesAndSetData();
+                long queryTime = System.nanoTime();
                 analizeAllPairsForArbitragePossibility();
-                if (count == 0) {
-                    printAllDeterminedData(MainClass.logPrintStream);
-                    count = 29;
-                } else {
-                    count--;
-                }
+                long analysisTime = System.nanoTime();
 
                 if (shouldArbitrage) {
                     performArbitrage();
+                    long arbitragePerformanceTime = System.nanoTime();
+                    if (didPerformArbitrage) {
+                        MainClass.logPrintStream.println("Time for Querying : " + (queryTime - startTime) +
+                                "\nTime for Analysis : " + (analysisTime - queryTime) + "\nTime for Arbitrage : " +
+                                (arbitragePerformanceTime - analysisTime));
+                        printAllDeterminedData(MainClass.logPrintStream);
+                    }
                 }
                 if (!(sentTransactionHashAndData.isEmpty() || isPrintingAnalysis || analysisPrinter.isShutdown())) {
                     analysisPrinter.submit(new AnalysisPrinter());

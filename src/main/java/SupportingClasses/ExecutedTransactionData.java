@@ -16,12 +16,17 @@ public class ExecutedTransactionData {
     public final BigDecimal gasPrice;
     private final BigDecimal decimals;
     private final String repayTokenSymbol;
+    private final BigDecimal thresholdEthAmount, borrowAmount, expectedProfitInEth;
 
-    public ExecutedTransactionData(String trxHash, String encodedFunction, BigInteger gasPrice, String repayTokenSymbol, int decimals) {
+    public ExecutedTransactionData(String trxHash, String encodedFunction, BigInteger gasPrice, String repayTokenSymbol, int decimals,
+                                   BigDecimal thresholdEthAmount, BigDecimal borrowAmount, BigDecimal expectedProfitInEth) {
         this.trxHash = trxHash;
         this.encodedFunction = encodedFunction;
         this.gasPrice = new BigDecimal(gasPrice, mathContext);
         this.repayTokenSymbol = repayTokenSymbol;
+        this.thresholdEthAmount = thresholdEthAmount;
+        this.borrowAmount = borrowAmount;
+        this.expectedProfitInEth = expectedProfitInEth;
         this.decimals = new BigDecimal(BigInteger.TEN.pow(decimals), mathContext);
     }
 
@@ -30,7 +35,7 @@ public class ExecutedTransactionData {
         StringBuilder stringBuilder = new StringBuilder();
 
         stringBuilder.append(trxHash)
-                .append("-")
+                .append(",-")
                 .append(new BigDecimal(transactionReceipt.getGasUsed()).multiply(gasPrice).divide(
                         new BigDecimal("1000000000000000000"), mathContext
                 ))
@@ -52,6 +57,13 @@ public class ExecutedTransactionData {
                     .append(" ")
                     .append(repayTokenSymbol);
         }
+
+        stringBuilder.append(",")
+                .append(thresholdEthAmount)
+                .append(",")
+                .append(borrowAmount)
+                .append(",")
+                .append(expectedProfitInEth);
 
         return stringBuilder.toString();
     }
