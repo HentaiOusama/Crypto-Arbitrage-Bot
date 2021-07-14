@@ -63,7 +63,7 @@ public class ArbitrageSystem {
             mathContextEven = new MathContext(20, RoundingMode.HALF_EVEN);
 
     // Crypto-Pair Related Storage Variables
-    private final String arbitrageContractAddress;
+    private final String chainName, arbitrageContractAddress;
     private final ArrayList<String> allExchangesToMonitor = new ArrayList<>();
     private final ArrayList<TheGraphQueryMaker> allQueryMakers = new ArrayList<>();
     // Mapping TheGraphQueryMaker to a mapping of pairId mapped to PairData 👇 //
@@ -85,10 +85,11 @@ public class ArbitrageSystem {
     private final HashMap<String, ExecutedTransactionData> sentTransactionHashAndData = new HashMap<>();
 
 
-    ArbitrageSystem(ArbitrageTelegramBot arbitrageTelegramBot, String arbitrageContractAddress, String privateKey,
+    ArbitrageSystem(ArbitrageTelegramBot arbitrageTelegramBot, String chainName, String arbitrageContractAddress, String privateKey,
                     int waitTimeInMillis, int maxPendingTrxAllowed, BigDecimal thresholdLevel, String[] dexTheGraphHostUrls,
                     String[][][] allPairIdsOnAllNetworks, String web3EndpointUrl) throws IllegalArgumentException, IOException {
         this.arbitrageTelegramBot = arbitrageTelegramBot;
+        this.chainName = chainName;
         this.arbitrageContractAddress = arbitrageContractAddress;
         this.waitTimeInMillis = waitTimeInMillis;
         this.maxPendingTrxAllowed = maxPendingTrxAllowed;
@@ -112,7 +113,7 @@ public class ArbitrageSystem {
             buildGraphQLQuery(i, theGraphQueryMaker, hashMap, allPairIdsOnAllNetworks[i]);
         }
 
-        File file = new File("ArbitrageResults.csv");
+        File file = new File(chainName + "-ArbitrageResults.csv");
         if (!file.exists()) {
             if (!file.createNewFile()) {
                 throw new IOException("Unable to create new file...");
@@ -453,6 +454,7 @@ public class ArbitrageSystem {
         Collections.reverse(allAnalizedPairData);
     }
 
+    // TODO : Stop using rawTransactionManager and reuse nonceValue to save call time and increase efficiency.
     private boolean performArbitrage(AnalizedPairData analizedPairData) {
         Function function = new Function(
                 "startArbitrage",
@@ -668,7 +670,7 @@ public class ArbitrageSystem {
                 printStream.println(analizedPairData);
             }
 
-            printStream.println("""
+            printStream.printf("""
                                         
                                         
                     Notes: -
@@ -677,9 +679,10 @@ public class ArbitrageSystem {
                     repay to Exchange A that we get from Exchange B.
                     Max. Profit is in terms of repay token.
                                         
+                    Threshold ETH : %s
                                         
                                         
-                    <-----     Data Printing Complete     ----->""");
+                    <-----     Data Printing Complete     ----->%n""", thresholdEthAmount.toString());
         }
     }
 
@@ -707,7 +710,7 @@ public class ArbitrageSystem {
     public void getPrintedAnalysisData(boolean shouldSentNotifier, String... chatId) {
         if (hasPrintedAnything) {
             printStream.flush();
-            arbitrageTelegramBot.sendFile("ArbitrageResults.csv", chatId);
+            arbitrageTelegramBot.sendFile(chainName + "-ArbitrageResults.csv", chatId);
         } else if (shouldSentNotifier) {
             for (String id : chatId) {
                 arbitrageTelegramBot.sendMessage(id, "No arbitrage was performed in last 24 Hrs.");
