@@ -7,6 +7,7 @@ import org.web3j.abi.datatypes.Function;
 import org.web3j.abi.datatypes.Uint;
 import org.web3j.abi.datatypes.generated.Uint256;
 import org.web3j.crypto.Credentials;
+import org.web3j.crypto.RawTransaction;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.BatchRequest;
 import org.web3j.protocol.core.DefaultBlockParameterName;
@@ -404,7 +405,7 @@ public class ArbitrageSystem {
         }
     }
 
-    private void analizeAllPairsAndPerformArbitrage(boolean shouldSendTransactions) {
+    private void analizeAllPairsAndPerformArbitrage(boolean shouldSendTransactions, BigInteger nonce) {
 
         allAnalizedPairData.clear();
         ExecutorService pairAnalysingExecutorService = Executors.newFixedThreadPool(Math.max(2, Runtime.getRuntime().availableProcessors() - 2));
@@ -437,7 +438,8 @@ public class ArbitrageSystem {
                             (analizedPairData.maxProfitInETH.compareTo(thresholdEthAmount) > 0)) {
 
                         // Perform Arbitrage if condition checks are satisfied....
-                        if (performArbitrage(analizedPairData)) {
+                        if (performArbitrage(analizedPairData, nonce)) {
+                            nonce = nonce.add(BigInteger.ONE);
                             pendingTransactionCount++;
                         }
                     }
@@ -454,8 +456,7 @@ public class ArbitrageSystem {
         Collections.reverse(allAnalizedPairData);
     }
 
-    // TODO : Stop using rawTransactionManager and reuse nonceValue to save call time and increase efficiency.
-    private boolean performArbitrage(AnalizedPairData analizedPairData) {
+    private boolean performArbitrage(AnalizedPairData analizedPairData, BigInteger nonce) {
         Function function = new Function(
                 "startArbitrage",
                 Arrays.asList(
@@ -475,14 +476,21 @@ public class ArbitrageSystem {
 
         try {
             EthCall ethCall = web3j.ethCall(Transaction.createEthCallTransaction(credentials.getAddress(), arbitrageContractAddress, encodedFunction),
-                    DefaultBlockParameterName.LATEST).send();
+                    DefaultBlockParameterName.PENDING).send();
             if (ethCall.isReverted()) {
                 throw new IOException("Reverted... Function : " + encodedFunction + "\nReason : " + ethCall.getRevertReason());
             } else {
                 MainClass.logPrintStream.println("Eth Call Success. Value : " + ethCall.getValue());
             }
-            String trxHash = rawTransactionManager.sendTransaction(gasPrice, gasLimit, arbitrageContractAddress, encodedFunction, BigInteger.ZERO)
-                    .getTransactionHash();
+            RawTransaction rawTransaction = RawTransaction.createTransaction(
+                    nonce,
+                    gasPrice,
+                    gasLimit,
+                    arbitrageContractAddress,
+                    BigInteger.ZERO,
+                    encodedFunction
+            );
+            String trxHash = rawTransactionManager.signAndSend(rawTransaction).getTransactionHash();
             sentTransactionHashAndData.put(trxHash, new ExecutedTransactionData(
                     trxHash, encodedFunction, gasPrice, analizedPairData.repayTokenSymbol,
                     Integer.parseInt(analizedPairData.repayTokenDecimals), thresholdEthAmount,
@@ -734,7 +742,7 @@ public class ArbitrageSystem {
                 long startTime = System.nanoTime();
                 makeQueriesAndSetData();
                 long queryTime = System.nanoTime();
-                analizeAllPairsAndPerformArbitrage(shouldArbitrage);
+                analizeAllPairsAndPerformArbitrage(shouldArbitrage, (BigInteger) web3CallResults[1]);
                 long analysisTime = System.nanoTime();
 
                 if (didPerformArbitrage) {
