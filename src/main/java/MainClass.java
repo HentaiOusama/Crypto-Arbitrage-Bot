@@ -1,4 +1,6 @@
 import org.apache.log4j.BasicConfigurator;
+import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 
@@ -22,6 +24,7 @@ public class MainClass {
             e.printStackTrace();
         }
 
+        Logger.getRootLogger().setLevel(Level.INFO);
         BasicConfigurator.configure();
         disableAccessWarnings();
         System.setProperty("com.google.inject.internal.cglib.$experimental_asm7", "true");

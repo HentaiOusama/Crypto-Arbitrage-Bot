@@ -322,9 +322,9 @@ public class ArbitrageSystem {
                 e.printStackTrace(MainClass.logPrintStream);
             }
             try {
-                boolean shutdownStatus = coreSystemExecutorService.awaitTermination(7, TimeUnit.SECONDS);
+                boolean shutdownStatus = coreSystemExecutorService.awaitTermination(4, TimeUnit.SECONDS);
                 if (!shutdownStatus) {
-                    MainClass.logPrintStream.println("Unable to shutdown within 7 seconds");
+                    MainClass.logPrintStream.println("Unable to shutdown within 4 seconds");
                 }
             } catch (InterruptedException e) {
                 e.printStackTrace(MainClass.logPrintStream);
