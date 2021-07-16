@@ -47,8 +47,8 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
     // Tracker and Pair Data
     private final ArrayList<String> allChainsNetworkId = new ArrayList<>();
     private final ArrayList<String> allChainsNetworkEndpointUrls = new ArrayList<>();
-    private final HashMap<String, ArbitrageSystem> runningArbitrageSystems = new HashMap<>();
     private final HashMap<String, NetworkData> allChainsNetworkData = new HashMap<>();
+    private final HashMap<String, ArbitrageSystem> runningArbitrageSystems = new HashMap<>();
     private String walletPrivateKey;
 
     ArbitrageTelegramBot() {
@@ -355,14 +355,16 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                             allPairIds.add(newPairId);
 
                             document = new Document("allPairIds", allPairIds);
-                            List<String> newData = new ArrayList<>();
-                            newData.add(token0Id);
-                            newData.add(token1Id);
-                            newData.add(token0Symbol);
-                            newData.add(token1Symbol);
-                            newData.add(decimal0);
-                            newData.add(decimal1);
-                            document.append(newPairId, newData);
+                            if (!foundDoc.containsKey(newPairId)) {
+                                List<String> newData = new ArrayList<>();
+                                newData.add(token0Id);
+                                newData.add(token1Id);
+                                newData.add(token0Symbol);
+                                newData.add(token1Symbol);
+                                newData.add(decimal0);
+                                newData.add(decimal1);
+                                document.append(newPairId, newData);
+                            }
 
                             Bson updateOperation = new Document("$set", document);
                             allPairAndTrackersDataCollection.updateOne(foundDoc, updateOperation);
@@ -418,6 +420,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
 
             ArrayList<String> pairIds = arbitrageSystem.removePair(token0, token1);
             if (pairIds != null) {
+                ArrayList<String> removedPairs = new ArrayList<>();
                 int length = pairIds.size();
                 for (int i = 0; i < length; i++) {
                     String id = pairIds.get(i);
@@ -439,7 +442,9 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                             }
                         }
 
-                        newDocument.remove(id);
+                        if (newDocument.remove(id) != null) {
+                            removedPairs.add(id);
+                        }
                         Bson updateOperation = new Document("$set", newDocument);
                         allPairAndTrackersDataCollection.updateOne(foundDoc, updateOperation);
 
@@ -448,9 +453,9 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                         document = new Document("allPairIds", builtList);
                         updateOperation = new Document("$set", document);
                         allPairAndTrackersDataCollection.updateOne(foundDoc, updateOperation);
-
                     }
                 }
+                sendMessage(chatId, "Operation Successful...\nFollowing PairIds were removed from monitoring list: -\n" + removedPairs);
             } else {
                 sendMessage(chatId, "No pair exist in with the given token addresses in the current monitoring list...");
             }
@@ -460,8 +465,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         }
     }
 
-    private void addNewTracker(String chatId, String text) throws IOException {
-        String[] params = text.trim().split("[ ]+");
+    private void addNewTracker(String chatId, String[] params) throws IOException {
         params[1] = params[1].toUpperCase();
         if (params.length < 4) {
             sendMessage(chatId, "Wrong usage of command. Correct Format: -\n" +
@@ -719,7 +723,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 removeOldPair(chatId, params);
             } else if (params[0].equalsIgnoreCase("addNewTrackerUrl")) {
                 try {
-                    addNewTracker(chatId, text);
+                    addNewTracker(chatId, params);
                 } catch (IOException e) {
                     e.printStackTrace(MainClass.logPrintStream);
                     sendMessage(chatId, "Database Error... (ID : 3). Please contact dev.");
