@@ -1,5 +1,6 @@
 import SupportingClasses.NetworkData;
 import SupportingClasses.TheGraphQueryMaker;
+import SupportingClasses.TwoDexPairData;
 import com.google.common.primitives.Booleans;
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
@@ -580,6 +581,240 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         }
     }
 
+    private void buildUniversalList(String chatId, String[] params) {
+        if (params.length == 4) {
+            params[1] = params[1].toUpperCase();
+            int parentIndex, childIndex;
+            try {
+                parentIndex = Integer.parseInt(params[2]);
+                childIndex = Integer.parseInt(params[3]);
+                if (childIndex < 0 || parentIndex <= 0 || parentIndex == childIndex) {
+                    sendMessage(chatId, "Indices cannot be less than 0, parentIndex cannot be 0 and both indices cannot be same");
+                    throw new NumberFormatException("Invalid Values");
+                }
+            } catch (NumberFormatException e) {
+                e.printStackTrace(MainClass.logPrintStream);
+                return;
+            }
+
+            if (allChainsNetworkId.contains(params[1])) {
+                String parentHost, childHost;
+                try {
+                    if (!allChainsNetworkData.containsKey(params[1])) {
+                        getInitializingDataFromMongoDB(allChainsNetworkId.indexOf(params[1]));
+                    }
+                    childHost = allChainsNetworkData.get(params[1]).allTrackerUrls[0];
+                    parentHost = allChainsNetworkData.get(params[1]).allTrackerUrls[1];
+                } catch (IOException e) {
+                    e.printStackTrace(MainClass.logPrintStream);
+                    sendMessage(chatId, "Database Error... (ID : 5). Contact Dev.");
+                    return;
+                } catch (ArrayIndexOutOfBoundsException e) {
+                    e.printStackTrace(MainClass.logPrintStream);
+                    sendMessage(chatId, "Indices values too large...");
+                    return;
+                }
+
+                Document universalDoc = new Document("identifier", "universalList"),
+                        parentDoc = new Document("trackerId", parentHost),
+                        childDoc = new Document("trackerId", childHost);
+                Document foundUniversalDoc = allPairAndTrackersDataCollection.find(universalDoc).first(),
+                        foundParentDoc = allPairAndTrackersDataCollection.find(parentDoc).first(),
+                        foundChildDoc = allPairAndTrackersDataCollection.find(childDoc).first();
+                assert foundUniversalDoc != null && foundParentDoc != null && foundChildDoc != null;
+
+
+                TheGraphQueryMaker sushiTheGraphQueryMaker = new TheGraphQueryMaker(parentHost, MainClass.logPrintStream);
+                TheGraphQueryMaker uniTheGraphQueryMaker = new TheGraphQueryMaker(childHost, MainClass.logPrintStream);
+                String pickKey = "uniswapFactories";
+                sushiTheGraphQueryMaker.setGraphQLQuery("""
+                        {
+                            uniswapFactories(first: 1) {
+                                pairCount
+                            }
+                        }""");
+                JSONObject pairCountJsonObject = sushiTheGraphQueryMaker.sendQuery();
+                if (pairCountJsonObject == null) {
+                    sushiTheGraphQueryMaker.setGraphQLQuery("""
+                            {
+                                factories(first: 1) {
+                                    pairCount
+                                }
+                            }""");
+                    pickKey = "factories";
+                    pairCountJsonObject = sushiTheGraphQueryMaker.sendQuery();
+                }
+                if (pairCountJsonObject == null) {
+                    sendMessage(chatId, "Error while fetching data from subgraph...");
+                    return;
+                }
+                int pairCount;
+                try {
+                    pairCount = (int) pairCountJsonObject.getJSONArray(pickKey).getJSONObject(0).get("pairCount");
+                } catch (NumberFormatException e) {
+                    e.printStackTrace(MainClass.logPrintStream);
+                    sendMessage(chatId, "Subgraph returned invalid pairCount");
+                    return;
+                } catch (Exception e) {
+                    e.printStackTrace(MainClass.logPrintStream);
+                    sendMessage(chatId, "SubGraph Error...");
+                    return;
+                }
+
+
+                ArrayList<String> allKeys = new ArrayList<>();
+                HashMap<String, TwoDexPairData> twoDexPairDataHashMap = new HashMap<>();
+
+                Document tempParentDoc = new Document(), tempChildDoc = new Document();
+                boolean didUpdateParent = false, didUpdateChild = false;
+                for (int skip = 0; skip < pairCount; skip += 100) {
+                    sushiTheGraphQueryMaker.setGraphQLQuery(String.format("""
+                            {
+                                pairs(skip: %d, first: 100) {
+                                    id
+                                    token0 {
+                                        id
+                                        symbol
+                                        decimals
+                                    }
+                                    token1 {
+                                        id
+                                        symbol
+                                        decimals
+                                    }
+                                }
+                            }""", skip));
+                    JSONObject retrievedPairListJsonObject = sushiTheGraphQueryMaker.sendQuery();
+                    if (retrievedPairListJsonObject == null || retrievedPairListJsonObject.isEmpty()) {
+                        break;
+                    }
+                    JSONArray jsonArray = retrievedPairListJsonObject.getJSONArray("pairs");
+                    String template = """
+                            p%s : pairs(where: {token0 : "%s", token1: "%s"}) {
+                               id
+                            }""";
+                    StringBuilder queryString = new StringBuilder();
+
+                    ArrayList<String> keys = new ArrayList<>();
+                    for (int i = 0; i < jsonArray.length(); i++) {
+                        JSONObject currentPairJsonObject = jsonArray.getJSONObject(i);
+                        TwoDexPairData twoDexPairData = new TwoDexPairData();
+                        twoDexPairData.parentPairId = currentPairJsonObject.getString("id");
+                        twoDexPairData.parentDex = parentHost;
+                        twoDexPairData.childDex = childHost;
+                        twoDexPairData.token0 = currentPairJsonObject.getJSONObject("token0").getString("id");
+                        twoDexPairData.token1 = currentPairJsonObject.getJSONObject("token1").getString("id");
+                        twoDexPairData.decimal0 = currentPairJsonObject.getJSONObject("token0").getString("decimals");
+                        twoDexPairData.decimal1 = currentPairJsonObject.getJSONObject("token1").getString("decimals");
+                        twoDexPairData.symbol0 = currentPairJsonObject.getJSONObject("token0").getString("symbol");
+                        twoDexPairData.symbol1 = currentPairJsonObject.getJSONObject("token1").getString("symbol");
+                        String key = twoDexPairData.setAndGetKey();
+                        keys.add(key);
+                        twoDexPairDataHashMap.put(key, twoDexPairData);
+                        queryString.append(String.format(template, i, twoDexPairData.token0, twoDexPairData.token1));
+                        queryString.append("\n");
+                    }
+
+                    uniTheGraphQueryMaker.setGraphQLQuery(String.format("""
+                            {
+                                %s
+                            }""", queryString));
+                    pairCountJsonObject = uniTheGraphQueryMaker.sendQuery();
+                    int internalIndex = 0;
+                    for (int i = 0; i < keys.size(); i++) {
+                        JSONArray jsonArray1 = pairCountJsonObject.getJSONArray("p" + internalIndex);
+                        internalIndex++;
+                        try {
+                            String result;
+                            if (jsonArray1.isEmpty()) {
+                                twoDexPairDataHashMap.remove(keys.remove(i));
+                                i--;
+                            } else {
+                                result = jsonArray1.getJSONObject(0).getString("id");
+                                if (result == null || result.equalsIgnoreCase("")) {
+                                    twoDexPairDataHashMap.remove(keys.remove(i));
+                                    i--;
+                                    throw new Exception("Unable to get pair from Uni");
+                                }
+                                twoDexPairDataHashMap.get(keys.get(i)).childPairId = result;
+                            }
+                        } catch (Exception e) {
+                            e.printStackTrace(MainClass.logPrintStream);
+                        }
+                    }
+                    allKeys.addAll(keys);
+
+                    for (String key : keys) {
+                        TwoDexPairData twoDexPairData = twoDexPairDataHashMap.get(key);
+                        if (!twoDexPairData.isValid()) {
+                            keys.remove(key);
+                            continue;
+                        }
+                        ArrayList<String> interTempArrayList = new ArrayList<>();
+                        interTempArrayList.add(twoDexPairData.token0);
+                        interTempArrayList.add(twoDexPairData.token1);
+                        interTempArrayList.add(twoDexPairData.symbol0);
+                        interTempArrayList.add(twoDexPairData.symbol1);
+                        interTempArrayList.add(twoDexPairData.decimal0);
+                        interTempArrayList.add(twoDexPairData.decimal1);
+                        if (!foundParentDoc.containsKey(twoDexPairData.parentPairId)) {
+                            tempParentDoc.append(twoDexPairData.parentPairId, interTempArrayList);
+                            didUpdateParent = true;
+                        }
+                        if (!foundChildDoc.containsKey(twoDexPairData.childPairId)) {
+                            tempChildDoc.append(twoDexPairData.childPairId, interTempArrayList);
+                            didUpdateChild = true;
+                        }
+
+                        List<?> list = (List<?>) foundUniversalDoc.get(key);
+                        interTempArrayList = new ArrayList<>();
+                        if (list == null) {
+                            int len = allChainsNetworkData.get(params[1]).allTrackerUrls.length;
+                            for (int i = 0; i < len; i++) {
+                                interTempArrayList.add("");
+                            }
+                        } else {
+                            for (Object o : list) {
+                                if (o instanceof String) {
+                                    interTempArrayList.add((String) o);
+                                }
+                            }
+                        }
+
+                        interTempArrayList.remove(parentIndex);
+                        interTempArrayList.add(parentIndex, twoDexPairData.parentPairId);
+                        interTempArrayList.remove(childIndex);
+                        interTempArrayList.add(childIndex, twoDexPairData.childPairId);
+                        universalDoc.append(twoDexPairData.key, interTempArrayList);
+                    }
+                }
+
+                if (allKeys.size() > 0) {
+                    universalDoc.append(params[1] + "-pairKeys", allKeys);
+                    Bson updateOperation = new Document("$set", universalDoc);
+                    allPairAndTrackersDataCollection.updateOne(foundUniversalDoc, updateOperation);
+
+                    if (didUpdateParent) {
+                        updateOperation = new Document("$set", tempParentDoc);
+                        allPairAndTrackersDataCollection.updateOne(foundParentDoc, updateOperation);
+                    }
+                    if (didUpdateChild) {
+                        updateOperation = new Document("$set", tempChildDoc);
+                        allPairAndTrackersDataCollection.updateOne(foundChildDoc, updateOperation);
+                    }
+                    sendMessage(chatId, "Operation Successful...");
+                } else {
+                    sendMessage(chatId, "No pairs were fetched...");
+                }
+            } else {
+                sendMessage(chatId, "Invalid chainName");
+            }
+        } else {
+            sendMessage(chatId, "Wrong usage of command. Proper usage: -\n" +
+                    "buildUniversalList   chainName   parentTrackerIndex(!0)   compareTrackerIndex");
+        }
+    }
+
 
     @Override
     public String getBotUsername() {
@@ -599,6 +834,15 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
             String text = update.getMessage().getText();
             String[] params = text.trim().split("[ ]+");
             MainClass.logPrintStream.println("From : " + chatId + "\nIncoming Message :\n" + text + "\n\n");
+
+            // TODO : Remove it when BSC is ready
+            if (params.length > 1) {
+                params[1] = params[1].toUpperCase();
+                if (params[1].equalsIgnoreCase("BSC")) {
+                    sendMessage(chatId, "BSC System is not yet ready for use");
+                    return;
+                }
+            }
 
             if (!allAdmins.contains(chatId)) {
                 sendMessage(chatId, "This bot can only be used by authorized personnel. Sorry....");
@@ -788,6 +1032,8 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     sendMessage(chatId, "Invalid format. Correct format :\n" +
                             "setWalletPrivateKey   privateKey");
                 }
+            } else if (params[0].equalsIgnoreCase("buildUniversalList")) {
+                buildUniversalList(chatId, params);
             } else if (params[0].equalsIgnoreCase("getLogs")) {
                 sendLogs(chatId);
             } else if (params[0].equalsIgnoreCase("clearLogs")) {
@@ -819,7 +1065,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     }
                 };
             } else if (params[0].equalsIgnoreCase("Commands")) {
-                sendMessage(chatId, """
+                String message = """
                         01) runSystem   chainName
                                                 
                         02) stopSystem   chainName
@@ -840,14 +1086,28 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                                                 
                         10) setWalletPrivateKey   privateKey
                                                 
-                        11) getLogs
-                                                
-                        12) clearLogs
-                                                
-                        13) Commands
+                        11) Commands%s
                                                 
                                                 
-                        (For any command, 1st word is the actual command name and it may be followed by 0 or more parameters that must be replaced by the actual values.)""");
+                        (For any command, 1st word is the actual command name and it may be followed by 0 or more parameters that must be replaced by the actual values.)""";
+
+                if (chatId.equalsIgnoreCase(allAdmins.get(0))) {
+                    message = String.format(message, """
+                                                        
+                                                        
+                            ----------------ONLY DEV COMMANDS 👇----------------
+                            01) setPollingInterval   timeInMillis   <- (requires restart)
+                                                        
+                            02) buildUniversalList   chainName   parentTrackerIndex(!0)   compareTrackerIndex
+                                                        
+                            03) getLogs
+                                                
+                            04) clearLogs""");
+                } else {
+                    message = String.format(message, "");
+                }
+
+                sendMessage(chatId, message);
             } else {
                 sendMessage(chatId, "Such command does not exists. (ノಠ益ಠ)ノ彡┻━┻");
             }

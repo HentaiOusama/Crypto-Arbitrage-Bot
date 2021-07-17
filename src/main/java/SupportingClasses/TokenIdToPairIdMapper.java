@@ -86,4 +86,11 @@ public class TokenIdToPairIdMapper extends HashMap<String, ArrayList<String>> {
         }
 
     }
+
+    public void addPairTracker(String key, String pairId) {
+        if (containsKey(key)) {
+            String[] tokens = key.split(", ");
+            addPairTracker(tokens[0], tokens[1], pairId);
+        }
+    }
 }

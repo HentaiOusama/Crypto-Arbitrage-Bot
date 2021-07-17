@@ -781,4 +781,12 @@ public class ArbitrageSystem {
             isPrintingAnalysis = false;
         }
     }
+
+    private class InterEnvironmentMiniSystem implements Runnable {
+
+        @Override
+        public void run() {
+
+        }
+    }
 }
