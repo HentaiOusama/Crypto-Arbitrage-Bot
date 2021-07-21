@@ -6,7 +6,7 @@
 
     <groupId>org.hentai_productions</groupId>
     <artifactId>arbitrage-bot</artifactId>
-    <version>4.0</version>
+    <version>5.0</version>
 
     <properties>
         <maven.compiler.source>15.0.1</maven.compiler.source>
@@ -87,6 +87,7 @@
                 <artifactId>appassembler-maven-plugin</artifactId>
                 <version>2.1.0</version>
                 <configuration>
+                    <target>15.0.1</target>
                     <extraJvmArguments>-ea</extraJvmArguments>
                     <assembleDirectory>target</assembleDirectory>
                     <programs>

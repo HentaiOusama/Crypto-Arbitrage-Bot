@@ -592,6 +592,9 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     sendMessage(chatId, "Indices cannot be less than 0, parentIndex cannot be 0 and both indices cannot be same");
                     throw new NumberFormatException("Invalid Values");
                 }
+                if (!(childIndex == 0) && !(parentIndex == 1)) {
+                    throw new NumberFormatException("Invalid Values of Indices");
+                }
             } catch (NumberFormatException e) {
                 e.printStackTrace(MainClass.logPrintStream);
                 return;
@@ -815,6 +818,74 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         }
     }
 
+    public void startRotationOnUniversalList(String chatId, String[] params) {
+        if (params.length == 2) {
+            params[1] = params[1].toUpperCase();
+            if (!runningArbitrageSystems.containsKey(params[1])) {
+                sendMessage(chatId, "This command can only be used when the arbitrage system for the input chainName is running");
+                return;
+            }
+
+            Document universalDoc = new Document("identifier", "universalList"),
+                    rootDoc = new Document("identifier", "root");
+            Document foundUniversalDoc = allPairAndTrackersDataCollection.find(universalDoc).first(),
+                    foundRootDoc = allPairAndTrackersDataCollection.find(rootDoc).first();
+            assert foundUniversalDoc != null && foundRootDoc != null;
+
+            Document[] trackerDocs;
+            if (foundRootDoc.containsKey(params[1] + "-TrackerUrls")) {
+                List<?> list = (List<?>) foundRootDoc.get(params[1] + "-TrackerUrls");
+                trackerDocs = new Document[list.size()];
+                String[] trackerList = new String[list.size()];
+                int index = 0;
+                for (Object o : list) {
+                    if (o instanceof String) {
+                        trackerList[index] = (String) o;
+                        trackerDocs[index] = allPairAndTrackersDataCollection.find(new Document("trackerId", trackerList[index])).first();
+                        assert trackerDocs[index] != null;
+                        index++;
+                    }
+                }
+
+                List<?> list1 = (List<?>) foundUniversalDoc.get(params[1] + "-pairKeys");
+                String[][][] allData = new String[list.size()][list1.size()][8];
+
+                for (int i = 0; i < list1.size(); i++) {
+                    Object o = list1.get(i);
+                    if (o instanceof String) {
+                        String key = (String) o;
+                        list = (List<?>) foundUniversalDoc.get(key);
+                        index = 0;
+                        for (Object obj : list) {
+                            if (obj instanceof String && !(((String) obj).equalsIgnoreCase(""))) {
+                                String pairId = (String) obj;
+                                List<?> tempList = (List<?>) trackerDocs[index].get((pairId));
+                                allData[index][i][0] = pairId;
+                                allData[index][i][7] = (String) trackerDocs[index].get("routerIndex");
+                                int innerIndex = 1;
+                                for (Object iObj : tempList) {
+                                    if (iObj instanceof String) {
+                                        allData[index][i][innerIndex] = (String) iObj;
+                                        innerIndex++;
+                                    }
+                                }
+                                index++;
+                            }
+                        }
+                    }
+                }
+
+                runningArbitrageSystems.get(params[1]).startInnerMiniEnvironment(chatId, trackerList, allData);
+                sendMessage(chatId, "Operation Successful");
+            } else {
+                sendMessage(chatId, "Invalid chainName");
+            }
+        } else {
+            sendMessage(chatId, "Invalid usage of command. Correct format: -\n" +
+                    "startRotationOnUniversalList chainName");
+        }
+    }
+
 
     @Override
     public String getBotUsername() {
@@ -1034,6 +1105,8 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 }
             } else if (params[0].equalsIgnoreCase("buildUniversalList")) {
                 buildUniversalList(chatId, params);
+            } else if (params[0].equalsIgnoreCase("startRotationOnUniversalList")) {
+                startRotationOnUniversalList(chatId, params);
             } else if (params[0].equalsIgnoreCase("getLogs")) {
                 sendLogs(chatId);
             } else if (params[0].equalsIgnoreCase("clearLogs")) {
@@ -1099,6 +1172,8 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                             01) setPollingInterval   timeInMillis   <- (requires restart)
                                                         
                             02) buildUniversalList   chainName   parentTrackerIndex(!0)   compareTrackerIndex
+                                                        
+                            03) startRotationOnUniversalList chainName
                                                         
                             03) getLogs
                                                 

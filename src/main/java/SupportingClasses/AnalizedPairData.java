@@ -50,7 +50,7 @@ public class AnalizedPairData implements Comparable<AnalizedPairData> {
 
     @Override
     public int compareTo(@NotNull AnalizedPairData o) {
-        return maxPossibleProfit.compareTo(o.maxPossibleProfit);
+        return maxProfitInETH.compareTo(o.maxProfitInETH);
     }
 
     @Override

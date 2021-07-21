@@ -51,8 +51,16 @@ public class PairData {
     }
 
     public void calculateAndSetStaticData() {
-        token0StaticPrice = token1Volume.divide(token0Volume, RoundingMode.HALF_DOWN);
-        token1StaticPrice = token0Volume.divide(token1Volume, RoundingMode.HALF_DOWN);
+        try {
+            token0StaticPrice = token1Volume.divide(token0Volume, RoundingMode.HALF_DOWN);
+        } catch (ArithmeticException e) {
+            token0StaticPrice = BigDecimal.ZERO;
+        }
+        try {
+            token1StaticPrice = token0Volume.divide(token1Volume, RoundingMode.HALF_DOWN);
+        } catch (ArithmeticException e) {
+            token1StaticPrice = BigDecimal.ZERO;
+        }
         lastUpdateMoment = Instant.now();
     }
 
