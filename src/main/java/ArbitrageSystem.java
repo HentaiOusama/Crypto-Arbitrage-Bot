@@ -61,6 +61,7 @@ public class ArbitrageSystem {
     private final String chainName, arbitrageContractAddress;
     private final ArrayList<String> allExchangesToMonitor = new ArrayList<>();
     private final ArrayList<TheGraphQueryMaker> allQueryMakers = new ArrayList<>();
+    private final ArrayList<String> derivedKeys = new ArrayList<>();
     // Mapping TheGraphQueryMaker to a mapping of pairId mapped to PairData 👇 //
     private final HashMap<TheGraphQueryMaker, HashMap<String, PairData>> allNetworkAllPairData = new HashMap<>();
     private final TokenIdToPairIdMapper tokenIdToPairIdMapper = new TokenIdToPairIdMapper();
@@ -83,7 +84,7 @@ public class ArbitrageSystem {
 
 
     ArbitrageSystem(ArbitrageTelegramBot arbitrageTelegramBot, String chainName, String arbitrageContractAddress, String privateKey,
-                    int waitTimeInMillis, int maxPendingTrxAllowed, BigDecimal thresholdLevel, String[] dexTheGraphHostUrls,
+                    int waitTimeInMillis, int maxPendingTrxAllowed, BigDecimal thresholdLevel, String[] dexTheGraphHostUrls, String[] derivedKeys,
                     String[][][] allPairIdsOnAllNetworks, String web3EndpointUrl) throws IllegalArgumentException, IOException {
         this.arbitrageTelegramBot = arbitrageTelegramBot;
         this.chainName = chainName;
@@ -91,6 +92,7 @@ public class ArbitrageSystem {
         this.waitTimeInMillis = waitTimeInMillis;
         this.maxPendingTrxAllowed = maxPendingTrxAllowed;
         this.allExchangesToMonitor.addAll(Arrays.asList(dexTheGraphHostUrls));
+        this.derivedKeys.addAll(Arrays.asList(derivedKeys));
         this.thresholdLevel = thresholdLevel;
         this.web3EndpointUrl = web3EndpointUrl;
         try {
@@ -107,7 +109,7 @@ public class ArbitrageSystem {
             HashMap<String, PairData> hashMap = new HashMap<>();
             allNetworkAllPairData.put(theGraphQueryMaker, hashMap);
 
-            buildGraphQLQuery(i, true, theGraphQueryMaker, hashMap, allPairIdsOnAllNetworks[i], tokenIdToPairIdMapper);
+            buildGraphQLQuery(i, true, theGraphQueryMaker, derivedKeys[i], hashMap, allPairIdsOnAllNetworks[i], tokenIdToPairIdMapper);
         }
 
         File file = new File(chainName + "-ArbitrageResults.csv");
@@ -121,8 +123,9 @@ public class ArbitrageSystem {
         printStream.println("Transaction Hash,Gas Used By Trx.,Actual Profit Generated,Threshold Eth Amount,Borrow Amount,Expected Profit (Eth)\n");
     }
 
-    protected static void buildGraphQLQuery(int index, boolean setQueryString, TheGraphQueryMaker theGraphQueryMaker, HashMap<String, PairData> hashMap,
-                                            String[][] currentNetworkPairIds, TokenIdToPairIdMapper tokenIdToPairIdMapper) {
+    protected static void buildGraphQLQuery(int index, boolean setQueryString, TheGraphQueryMaker theGraphQueryMaker, String derivedKey,
+                                            HashMap<String, PairData> hashMap, String[][] currentNetworkPairIds,
+                                            TokenIdToPairIdMapper tokenIdToPairIdMapper) {
         int len = currentNetworkPairIds.length;
         if (len == 0) {
             theGraphQueryMaker.isQueryMakerBad = true;
@@ -154,13 +157,13 @@ public class ArbitrageSystem {
                          reserve0
                          reserve1
                          token0 {
-                            derivedETH
+                            %s
                          }
                          token1 {
-                            derivedETH
+                            %s
                          }
                        }
-                    }""", stringBuilder)
+                    }""", stringBuilder, derivedKey, derivedKey)
             );
         }
     }
@@ -382,10 +385,11 @@ public class ArbitrageSystem {
         return retVal;
     }
 
-    private static void makeQueriesAndSetData(ArrayList<TheGraphQueryMaker> allQueryMakers,
+    private static void makeQueriesAndSetData(ArrayList<TheGraphQueryMaker> allQueryMakers, ArrayList<String> derivedKeys,
                                               HashMap<TheGraphQueryMaker, HashMap<String, PairData>> allNetworkAllPairData) {
+        int indexer = -1;
         for (TheGraphQueryMaker theGraphQueryMaker : allQueryMakers) {
-
+            indexer++;
             JSONObject jsonObject = theGraphQueryMaker.sendQuery();
 
             if (jsonObject != null) {
@@ -400,8 +404,8 @@ public class ArbitrageSystem {
                         try {
                             pairData.setTokenVolumesAndDerivedETH(
                                     jsonObject.getString("reserve0"), jsonObject.getString("reserve1"),
-                                    jsonObject.getJSONObject("token0").getString("derivedETH"),
-                                    jsonObject.getJSONObject("token1").getString("derivedETH"));
+                                    jsonObject.getJSONObject("token0").getString(derivedKeys.get(indexer)),
+                                    jsonObject.getJSONObject("token1").getString(derivedKeys.get(indexer)));
                         } catch (Exception e) {
                             MainClass.logPrintStream.println("Error for : " + jsonObject);
                             e.printStackTrace(MainClass.logPrintStream);
@@ -610,8 +614,9 @@ public class ArbitrageSystem {
         }
     }
 
-    public void startInnerMiniEnvironment(String chatId, String[] dexTheGraphHostUrls, String[][][] allPairIdsOnAllNetworks) {
-        InterEnvironmentMiniSystem interEnvironmentMiniSystem = new InterEnvironmentMiniSystem(chatId, dexTheGraphHostUrls, allPairIdsOnAllNetworks);
+    public void startInnerMiniEnvironment(String chatId, String[] dexTheGraphHostUrls, String[] derivedKeys, String[][][] allPairIdsOnAllNetworks) {
+        InterEnvironmentMiniSystem interEnvironmentMiniSystem = new InterEnvironmentMiniSystem(chatId, dexTheGraphHostUrls, derivedKeys,
+                allPairIdsOnAllNetworks);
         interEnvironmentMiniSystem.run();
     }
 
@@ -630,7 +635,7 @@ public class ArbitrageSystem {
                 boolean shouldArbitrage = (boolean) web3CallResults[0];
                 nonce = (BigInteger) web3CallResults[1];
                 long startTime = System.nanoTime();
-                makeQueriesAndSetData(allQueryMakers, allNetworkAllPairData);
+                makeQueriesAndSetData(allQueryMakers, derivedKeys, allNetworkAllPairData);
                 long queryTime = System.nanoTime();
                 analizeAllPairsAndPerformArbitrage(shouldArbitrage);
                 long analysisTime = System.nanoTime();
@@ -684,14 +689,16 @@ public class ArbitrageSystem {
 
         private final ArrayList<String> allExchangesToMonitor = new ArrayList<>();
         private final ArrayList<TheGraphQueryMaker> allQueryMakers = new ArrayList<>();
+        private final ArrayList<String> derivedKeys = new ArrayList<>();
         private final HashMap<TheGraphQueryMaker, HashMap<String, PairData>> allNetworkAllPairData = new HashMap<>();
         private final ArrayList<AnalizedPairData> allAnalizedPairData = new ArrayList<>();
         private final TokenIdToPairIdMapper tokenIdToPairIdMapper = new TokenIdToPairIdMapper();
         private final String chatId;
 
-        InterEnvironmentMiniSystem(String chatId, String[] dexTheGraphHostUrls, String[][][] allPairIdsOnAllNetworks) {
+        InterEnvironmentMiniSystem(String chatId, String[] dexTheGraphHostUrls, String[] derivedKeys, String[][][] allPairIdsOnAllNetworks) {
             this.chatId = chatId;
             allExchangesToMonitor.addAll(Arrays.asList(dexTheGraphHostUrls));
+            this.derivedKeys.addAll(Arrays.asList(derivedKeys));
             int length = dexTheGraphHostUrls.length;
             for (int i = 0; i < length; i++) {
                 TheGraphQueryMaker theGraphQueryMaker = new TheGraphQueryMaker(dexTheGraphHostUrls[i], MainClass.logPrintStream);
@@ -699,7 +706,7 @@ public class ArbitrageSystem {
                 HashMap<String, PairData> hashMap = new HashMap<>();
                 allNetworkAllPairData.put(theGraphQueryMaker, hashMap);
 
-                buildGraphQLQuery(i, false, theGraphQueryMaker, hashMap, allPairIdsOnAllNetworks[i], tokenIdToPairIdMapper);
+                buildGraphQLQuery(i, false, theGraphQueryMaker, derivedKeys[i], hashMap, allPairIdsOnAllNetworks[i], tokenIdToPairIdMapper);
             }
         }
 
@@ -742,17 +749,17 @@ public class ArbitrageSystem {
                                  reserve0
                                  reserve1
                                  token0 {
-                                    derivedETH
+                                    %s
                                  }
                                  token1 {
-                                    derivedETH
+                                    %s
                                  }
                                }
-                            }""", queryBuilders[i]));
+                            }""", queryBuilders[i], derivedKeys.get(i), derivedKeys.get(i)));
                 }
                 // Build Query String complete
 
-                makeQueriesAndSetData(allQueryMakers, allNetworkAllPairData);
+                makeQueriesAndSetData(allQueryMakers, derivedKeys, allNetworkAllPairData);
                 ArrayList<String> currentKeys = new ArrayList<>(Arrays.asList(allKeys).subList(end - 24, Math.min(end + 1, allKeys.length)));
                 analizeAllPairsAndPerformArbitrage(currentKeys, pendingCount == 0);
             }

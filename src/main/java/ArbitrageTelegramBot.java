@@ -150,16 +150,28 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         assert foundDoc != null;
 
         String[] allTrackerUrls;
+        String[] derivedKeys;
         String[][][] allPairIdsAndTokenDetails = null; // Url -> [ pairId -> {paidID, token0Id, token1Id, token0Symbol, token1Symbol, decimal0, decimal1} ]
         String arbitrageContractAddress = (String) foundDoc.get(chainNetworkId + "-arbitrageContractAddress");
 
-        List<?> list1 = (List<?>) foundDoc.get(chainNetworkId + "-TrackerUrls");
-        int len1 = list1.size();
+        List<?> list = (List<?>) foundDoc.get(chainNetworkId + "-DerivedKey");
+        int len1 = list.size();
+        derivedKeys = new String[len1];
+        for (int i = 0; i < len1; i++) {
+            Object item1 = list.get(i);
+            if (item1 instanceof String) {
+                String currentKey = (String) item1;
+                derivedKeys[i] = currentKey;
+            }
+        }
+
+        list = (List<?>) foundDoc.get(chainNetworkId + "-TrackerUrls");
+        len1 = list.size();
         MainClass.logPrintStream.println(chainNetworkId + " : All Tracker Urls Size : " + len1);
         allTrackerUrls = new String[len1];
 
         for (int i = 0; i < len1; i++) {
-            Object item1 = list1.get(i);
+            Object item1 = list.get(i);
             if (item1 instanceof String) {
                 String currentUrl = (String) item1;
                 allTrackerUrls[i] = currentUrl;
@@ -197,7 +209,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         }
 
         allChainsNetworkData.put(chainNetworkId, new NetworkData(chainNetworkId, allChainsNetworkEndpointUrls.get(networkIndex), arbitrageContractAddress,
-                allTrackerUrls, allPairIdsAndTokenDetails));
+                allTrackerUrls, derivedKeys, allPairIdsAndTokenDetails));
     }
 
     public boolean startArbitrageSystem(int networkIndex) {
@@ -210,7 +222,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 NetworkData networkData = allChainsNetworkData.get(chainNetworkId);
                 ArbitrageSystem arbitrageSystem = new ArbitrageSystem(this, chainNetworkId, networkData.arbitrageContractAddress,
                         walletPrivateKey, pollingInterval, maxPendingTrxAllowed, BigDecimal.valueOf(thresholdLevel), networkData.allTrackerUrls,
-                        networkData.allPairIdsAndTokenDetails, networkData.web3EndpointUrl);
+                        networkData.derivedKeys, networkData.allPairIdsAndTokenDetails, networkData.web3EndpointUrl);
                 runningArbitrageSystems.put(chainNetworkId, arbitrageSystem);
 
                 if (!shouldRunSystems[networkIndex]) {
@@ -468,9 +480,9 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
 
     private void addNewTracker(String chatId, String[] params) throws IOException {
         params[1] = params[1].toUpperCase();
-        if (params.length < 4) {
+        if (params.length < 5) {
             sendMessage(chatId, "Wrong usage of command. Correct Format: -\n" +
-                    "addNewTrackerUrl   chainName   theGraphUrlEndpoint   routerIndex");
+                    "addNewTrackerUrl   chainName   theGraphUrlEndpoint   derivedKey   routerIndex");
             return;
         }
         if (!allChainsNetworkId.contains(params[1])) {
@@ -540,7 +552,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     }
                 }
                 document.append("allPairIds", availablePairs);
-                document.append("routerIndex", params[3]);
+                document.append("routerIndex", params[4]);
                 allPairAndTrackersDataCollection.insertOne(document);
 
 
@@ -549,24 +561,35 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     foundDoc = allPairAndTrackersDataCollection.find(document).first();
                     assert foundDoc != null;
 
-                    List<?> list = (List<?>) foundDoc.get(params[1] + "-TrackerUrls");
-                    List<String> newList = new ArrayList<>();
+                    List<?> list = (List<?>) foundDoc.get(params[1] + "-DerivedKeys");
+                    List<String> newKeyList = new ArrayList<>();
+                    for (Object item : list) {
+                        if (item instanceof String) {
+                            String currentKey = (String) item;
+                            newKeyList.add(currentKey);
+                        }
+                    }
+                    newKeyList.add(params[3]);
+
+                    list = (List<?>) foundDoc.get(params[1] + "-TrackerUrls");
+                    List<String> newUrlList = new ArrayList<>();
                     int len1 = list.size();
                     networkData.allTrackerUrls = new String[len1];
 
                     for (Object item : list) {
                         if (item instanceof String) {
                             String currentUrl = (String) item;
-                            newList.add(currentUrl);
+                            newUrlList.add(currentUrl);
                         }
                     }
-                    newList.add(params[2]);
+                    newUrlList.add(params[2]);
 
-                    document = new Document(params[1] + "-TrackerUrls", newList);
+                    document = new Document(params[1] + "-TrackerUrls", newUrlList)
+                            .append(params[1] + "-DerivedKeys", newKeyList);
                     Bson updateOperation = new Document("$set", document);
                     allPairAndTrackersDataCollection.updateOne(foundDoc, updateOperation);
 
-                    sendMessage(chatId, "Operation Successful.\n(Please restart the bot for changes to take effect.)");
+                    sendMessage(chatId, "Operation Successful.\n(Please restart the bot for changes to take effect or to add more trackers)");
                 } catch (Exception e) {
                     sendMessage(chatId, "There was an error while updating the database for the given url.");
                     e.printStackTrace(MainClass.logPrintStream);
@@ -618,7 +641,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     return;
                 }
 
-                Document universalDoc = new Document("identifier", "universalList"),
+                Document universalDoc = new Document("identifier", params[1] + "-UniversalList"),
                         parentDoc = new Document("trackerId", parentHost),
                         childDoc = new Document("trackerId", childHost);
                 Document foundUniversalDoc = allPairAndTrackersDataCollection.find(universalDoc).first(),
@@ -648,7 +671,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     pairCountJsonObject = sushiTheGraphQueryMaker.sendQuery();
                 }
                 if (pairCountJsonObject == null) {
-                    sendMessage(chatId, "Error while fetching data from subgraph...");
+                    sendMessage(chatId, "Error while fetching data from subgraph. Unable to build the GraphQl Query");
                     return;
                 }
                 int pairCount;
@@ -826,7 +849,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 return;
             }
 
-            Document universalDoc = new Document("identifier", "universalList"),
+            Document universalDoc = new Document("identifier", params[1] + "-UniversalList"),
                     rootDoc = new Document("identifier", "root");
             Document foundUniversalDoc = allPairAndTrackersDataCollection.find(universalDoc).first(),
                     foundRootDoc = allPairAndTrackersDataCollection.find(rootDoc).first();
@@ -834,7 +857,18 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
 
             Document[] trackerDocs;
             if (foundRootDoc.containsKey(params[1] + "-TrackerUrls")) {
-                List<?> list = (List<?>) foundRootDoc.get(params[1] + "-TrackerUrls");
+                String[] derivedKeys;
+                List<?> list = (List<?>) foundRootDoc.get(params[1] + "-DerivedKey");
+                int len1 = list.size();
+                derivedKeys = new String[len1];
+                for (int i = 0; i < len1; i++) {
+                    Object item1 = list.get(i);
+                    if (item1 instanceof String) {
+                        String currentKey = (String) item1;
+                        derivedKeys[i] = currentKey;
+                    }
+                }
+                list = (List<?>) foundRootDoc.get(params[1] + "-TrackerUrls");
                 trackerDocs = new Document[list.size()];
                 String[] trackerList = new String[list.size()];
                 int index = 0;
@@ -875,7 +909,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     }
                 }
 
-                runningArbitrageSystems.get(params[1]).startInnerMiniEnvironment(chatId, trackerList, allData);
+                runningArbitrageSystems.get(params[1]).startInnerMiniEnvironment(chatId, trackerList, derivedKeys, allData);
                 sendMessage(chatId, "Operation Successful");
             } else {
                 sendMessage(chatId, "Invalid chainName");
@@ -906,13 +940,8 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
             String[] params = text.trim().split("[ ]+");
             MainClass.logPrintStream.println("From : " + chatId + "\nIncoming Message :\n" + text + "\n\n");
 
-            // TODO : Remove it when BSC is ready
             if (params.length > 1) {
                 params[1] = params[1].toUpperCase();
-                if (params[1].equalsIgnoreCase("BSC")) {
-                    sendMessage(chatId, "BSC System is not yet ready for use");
-                    return;
-                }
             }
 
             if (!allAdmins.contains(chatId)) {
@@ -1151,7 +1180,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                                                 
                         06) removeOldPair   chainName   token0Addy   token1Addy
                                                 
-                        07) addNewTrackerUrl   chainName   theGraphUrl   routerIndex
+                        07) addNewTrackerUrl   chainName   theGraphUrl   derivedKey   routerIndex
                                                 
                         08) getAllPairDetails   chainName
                                                 
