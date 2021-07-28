@@ -33,7 +33,7 @@ import java.util.concurrent.*;
 /*
  *
  * System Assumptions: -
- * (When not explicitly mentioned, or understood, then the following indexes mean 👇)
+ * ( When not explicitly mentioned, or understood, then the following indexes mean 👇 )
  * 0 => UniSwap / PancakeSwap
  * 1 => Dex Depends upon the selected network
  * 2 => -------------- || -------------------
@@ -559,7 +559,7 @@ public class ArbitrageSystem {
                                         
                     <-----     Trimmed Data After Analysis     ----->
                                         
-                    ,Borrow Token Symbol,Repay Token Symbol,Exchange A,Exchange B,Max. Borrow Amount,Max. Possible Profit,Max. Profit(in ETH)
+                    ,Borrow Token Symbol,Repay Token Symbol,Exchange A,Exchange B,Max. Borrow Amount,Max. Possible Profit,Max. Profit(in ETH / BNB)
                     """);
 
             for (AnalizedPairData analizedPairData : allAnalizedPairData) {
@@ -575,7 +575,7 @@ public class ArbitrageSystem {
                     repay to Exchange A that we get from Exchange B.
                     Max. Profit is in terms of repay token.
                                         
-                    Threshold ETH : %s
+                    Threshold ETH / BNB : %s
                                         
                                         
                     <-----     Data Printing Complete     ----->%n""", thresholdEthAmount.toString());

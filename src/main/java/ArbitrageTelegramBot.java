@@ -561,7 +561,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     foundDoc = allPairAndTrackersDataCollection.find(document).first();
                     assert foundDoc != null;
 
-                    List<?> list = (List<?>) foundDoc.get(params[1] + "-DerivedKeys");
+                    List<?> list = (List<?>) foundDoc.get(params[1] + "-DerivedKey");
                     List<String> newKeyList = new ArrayList<>();
                     for (Object item : list) {
                         if (item instanceof String) {
@@ -585,7 +585,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     newUrlList.add(params[2]);
 
                     document = new Document(params[1] + "-TrackerUrls", newUrlList)
-                            .append(params[1] + "-DerivedKeys", newKeyList);
+                            .append(params[1] + "-DerivedKey", newKeyList);
                     Bson updateOperation = new Document("$set", document);
                     allPairAndTrackersDataCollection.updateOne(foundDoc, updateOperation);
 
