@@ -51,7 +51,7 @@ public class ArbitrageSystem {
     private final FileOutputStream fileOutputStream;
     private final PrintStream printStream;
     private boolean hasPrintedAnything = false;
-    public static volatile BigDecimal thresholdEthAmount;
+    public volatile BigDecimal thresholdEthAmount;
     private volatile boolean didPerformArbitrage = false;
 
     // Calculation Constants
@@ -372,6 +372,10 @@ public class ArbitrageSystem {
                 maxGasFees = new BigDecimal(gasLimit.multiply(gasPrice)).divide(new BigDecimal("1000000000000000000"), mathContextUp);
             }
             thresholdEthAmount = maxGasFees.multiply(thresholdLevel);
+            if (arbitrageTelegramBot.loggingMode) {
+                MainClass.logPrintStream.println("Gas Price : " + gasPrice + ", Gas Limit : " + gasLimit + ", Max Gas Fees : " + maxGasFees +
+                        ", thresholdETHAmount : " + thresholdEthAmount);
+            }
 
             if (noncePending != null && nonceComplete != null && noncePending.compareTo(nonceComplete) == 0) {
                 pendingCount = 0;
@@ -475,7 +479,7 @@ public class ArbitrageSystem {
                         new Address(analizedPairData.repayToken),
                         new Uint((analizedPairData.maxBorrowAmount.multiply(
                                 BigDecimal.TEN.pow(Integer.parseInt(analizedPairData.borrowTokenDecimals))
-                        )).toBigInteger()),
+                        )).toBigInteger().multiply(BigInteger.valueOf(97)).divide(BigInteger.valueOf(100))),
                         new Uint(BigInteger.valueOf(0)),
                         new Address(analizedPairData.exchangeA.pairId),
                         new Uint256(BigInteger.valueOf(analizedPairData.exchangeARouterIndex)),
@@ -519,7 +523,8 @@ public class ArbitrageSystem {
 
     protected static void printAllDeterminedData(ArrayList<TheGraphQueryMaker> allQueryMakers,
                                                  HashMap<TheGraphQueryMaker, HashMap<String, PairData>> allNetworkAllPairData,
-                                                 ArrayList<AnalizedPairData> allAnalizedPairData, PrintStream... printStreams) {
+                                                 ArrayList<AnalizedPairData> allAnalizedPairData, BigDecimal thresholdEthAmount,
+                                                 PrintStream... printStreams) {
         for (PrintStream printStream : printStreams) {
             printStream.println("""
                     <-----     Printing All Determined Data     ----->
@@ -575,7 +580,7 @@ public class ArbitrageSystem {
                     repay to Exchange A that we get from Exchange B.
                     Max. Profit is in terms of repay token.
                                         
-                    Threshold ETH / BNB : %s
+                    Threshold (in ETH / BNB) : %s
                                         
                                         
                     <-----     Data Printing Complete     ----->%n""", thresholdEthAmount.toString());
@@ -592,7 +597,7 @@ public class ArbitrageSystem {
             }
             FileOutputStream fileOutputStream = new FileOutputStream("GatheredData.csv");
             PrintStream printStream = new PrintStream(fileOutputStream);
-            printAllDeterminedData(allQueryMakers, allNetworkAllPairData, allAnalizedPairData, printStream);
+            printAllDeterminedData(allQueryMakers, allNetworkAllPairData, allAnalizedPairData, thresholdEthAmount, printStream);
             printStream.close();
             fileOutputStream.close();
             arbitrageTelegramBot.sendFile("GatheredData.csv", chatId);
@@ -643,7 +648,7 @@ public class ArbitrageSystem {
                 if (didPerformArbitrage) {
                     MainClass.logPrintStream.println("Time for Querying : " + (queryTime - startTime) +
                             "\nTime for Analysis & Arbitrage : " + (analysisTime - queryTime));
-                    printAllDeterminedData(allQueryMakers, allNetworkAllPairData, allAnalizedPairData, MainClass.logPrintStream);
+                    printAllDeterminedData(allQueryMakers, allNetworkAllPairData, allAnalizedPairData, thresholdEthAmount, MainClass.logPrintStream);
                 }
                 if (!(sentTransactionHashAndData.isEmpty() || isPrintingAnalysis || analysisPrinter.isShutdown())) {
                     analysisPrinter.submit(new AnalysisPrinter());
@@ -829,7 +834,7 @@ public class ArbitrageSystem {
                 }
                 FileOutputStream fileOutputStream = new FileOutputStream("UNIVERSAL-GatheredData.csv");
                 PrintStream printStream = new PrintStream(fileOutputStream);
-                ArbitrageSystem.printAllDeterminedData(allQueryMakers, allNetworkAllPairData, allAnalizedPairData, printStream);
+                ArbitrageSystem.printAllDeterminedData(allQueryMakers, allNetworkAllPairData, allAnalizedPairData, thresholdEthAmount, printStream);
                 printStream.close();
                 fileOutputStream.close();
                 arbitrageTelegramBot.sendFile("UNIVERSAL-GatheredData.csv", chatId);

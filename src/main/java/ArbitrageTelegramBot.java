@@ -40,6 +40,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
     private final ArrayList<String> allAdmins = new ArrayList<>();
     private int thresholdLevel;
     private int pollingInterval, maxPendingTrxAllowed; // Milliseconds, int
+    volatile boolean loggingMode = false;
 
     // MongoDB Variables
     public MongoClient mongoClient;
@@ -999,9 +1000,11 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
             } else if (params[0].equalsIgnoreCase("setThresholdLevel")) {
                 if (params.length == 2) {
                     try {
+                        int temp = thresholdLevel;
                         thresholdLevel = Integer.parseInt(params[1]);
                         if (thresholdLevel < 2) {
                             sendMessage(chatId, "Threshold Level cannot be less than 2");
+                            thresholdLevel = temp;
                             return;
                         }
                         Document document = new Document("identifier", "general");
@@ -1166,6 +1169,12 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                         super.close();
                     }
                 };
+            } else if (params[0].equalsIgnoreCase("setLoggingMode")) {
+                if (params.length == 2) {
+                    loggingMode = Boolean.parseBoolean(params[1]);
+                } else {
+                    sendMessage(chatId, "Invalid Format.... Correct Format: - \nsetLoggingMode   booleanVal");
+                }
             } else if (params[0].equalsIgnoreCase("Commands")) {
                 String message = """
                         01) runSystem   chainName
@@ -1206,7 +1215,9 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                                                         
                             03) getLogs
                                                 
-                            04) clearLogs""");
+                            04) clearLogs
+                                                        
+                            05) setLoggingMode   booleanVal""");
                 } else {
                     message = String.format(message, "");
                 }
