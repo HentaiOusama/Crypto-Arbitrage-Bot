@@ -160,8 +160,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
         derivedKeys = new String[len1];
         for (int i = 0; i < len1; i++) {
             Object item1 = list.get(i);
-            if (item1 instanceof String) {
-                String currentKey = (String) item1;
+            if (item1 instanceof String currentKey) {
                 derivedKeys[i] = currentKey;
             }
         }
@@ -173,8 +172,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
 
         for (int i = 0; i < len1; i++) {
             Object item1 = list.get(i);
-            if (item1 instanceof String) {
-                String currentUrl = (String) item1;
+            if (item1 instanceof String currentUrl) {
                 allTrackerUrls[i] = currentUrl;
 
                 document = new Document("trackerId", currentUrl);
@@ -188,8 +186,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 int len2 = list2.size();
                 for (int j = 0; j < len2; j++) {
                     Object item2 = list2.get(j);
-                    if (item2 instanceof String) {
-                        String currentPairId = (String) item2;
+                    if (item2 instanceof String currentPairId) {
                         List<?> list3 = (List<?>) foundDoc.get(currentPairId);
 
                         int len3 = list3.size();
@@ -355,9 +352,8 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     Document foundDoc = allPairAndTrackersDataCollection.find(document).first();
 
                     assert foundDoc != null;
-                    if (foundDoc.get("allPairIds") instanceof List<?>) {
+                    if (foundDoc.get("allPairIds") instanceof List<?> receivedPairIds) {
                         List<String> allPairIds = new ArrayList<>();
-                        List<?> receivedPairIds = (List<?>) foundDoc.get("allPairIds");
                         for (Object item : receivedPairIds) {
                             if (item instanceof String) {
                                 allPairIds.add((String) item);
@@ -448,8 +444,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                         List<?> list = (List<?>) foundDoc.get("allPairIds");
                         List<String> builtList = new ArrayList<>();
                         for (Object item : list) {
-                            if (item instanceof String) {
-                                String foundId = (String) item;
+                            if (item instanceof String foundId) {
                                 if (!foundId.equalsIgnoreCase(id)) {
                                     builtList.add(foundId);
                                 }
@@ -519,8 +514,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
 
                 List<?> allUniPairs = (List<?>) foundDoc1.get("allPairIds");
                 for (Object item : allUniPairs) {
-                    if (item instanceof String) {
-                        String currentPairId = (String) item;
+                    if (item instanceof String currentPairId) {
                         List<?> list = (List<?>) foundDoc1.get(currentPairId);
                         String[] tokenDetails = new String[list.size()];
                         int index = 0;
@@ -565,8 +559,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     List<?> list = (List<?>) foundDoc.get(params[1] + "-DerivedKey");
                     List<String> newKeyList = new ArrayList<>();
                     for (Object item : list) {
-                        if (item instanceof String) {
-                            String currentKey = (String) item;
+                        if (item instanceof String currentKey) {
                             newKeyList.add(currentKey);
                         }
                     }
@@ -578,8 +571,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                     networkData.allTrackerUrls = new String[len1];
 
                     for (Object item : list) {
-                        if (item instanceof String) {
-                            String currentUrl = (String) item;
+                        if (item instanceof String currentUrl) {
                             newUrlList.add(currentUrl);
                         }
                     }
@@ -864,8 +856,7 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
                 derivedKeys = new String[len1];
                 for (int i = 0; i < len1; i++) {
                     Object item1 = list.get(i);
-                    if (item1 instanceof String) {
-                        String currentKey = (String) item1;
+                    if (item1 instanceof String currentKey) {
                         derivedKeys[i] = currentKey;
                     }
                 }
@@ -887,13 +878,11 @@ public class ArbitrageTelegramBot extends TelegramLongPollingBot {
 
                 for (int i = 0; i < list1.size(); i++) {
                     Object o = list1.get(i);
-                    if (o instanceof String) {
-                        String key = (String) o;
+                    if (o instanceof String key) {
                         list = (List<?>) foundUniversalDoc.get(key);
                         index = 0;
                         for (Object obj : list) {
-                            if (obj instanceof String && !(((String) obj).equalsIgnoreCase(""))) {
-                                String pairId = (String) obj;
+                            if (obj instanceof String pairId && !(((String) obj).equalsIgnoreCase(""))) {
                                 List<?> tempList = (List<?>) trackerDocs[index].get((pairId));
                                 allData[index][i][0] = pairId;
                                 allData[index][i][7] = (String) trackerDocs[index].get("routerIndex");
